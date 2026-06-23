@@ -5,6 +5,7 @@ const { verificarToken }  = require('../middlewares/auth.middleware');
 const { limiterLogin, limiterApi } = require('../middlewares/rateLimiter.middleware');
 
 router.post('/login',             limiterLogin, ctrl.login);
+router.post('/login/verify-2fa',  limiterLogin, ctrl.loginVerify2fa);
 router.post('/logout',            verificarToken, ctrl.logout);
 router.get ('/me',                verificarToken, ctrl.me);
 router.post('/setup-2fa',         verificarToken, limiterApi, ctrl.setup2fa);

@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto  = require('crypto');
-const { query }                   = require('../config/db');
+const { query, getConnection }    = require('../config/db');
 const { getCache, KEYS }          = require('../config/redis');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

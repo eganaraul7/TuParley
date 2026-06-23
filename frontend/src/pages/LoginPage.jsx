@@ -51,7 +51,7 @@ export default function LoginPage() {
         contrasena,
       });
 
-      if (!res.requiere2fa) {
+      if (!res.requiere_2fa) {
         setAuth(res.token, res.usuario);
         navigate(rutaPorRol(res.usuario.rol), { replace: true });
         return;
