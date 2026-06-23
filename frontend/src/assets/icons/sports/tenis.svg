@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Raqueta: mango -->
+  <path d="M15.5 15.5L20 20"/>
+  <!-- Raqueta: marco ovalado -->
+  <ellipse cx="11" cy="11" rx="7" ry="8" transform="rotate(-45 11 11)"/>
+  <!-- Cuerdas verticales -->
+  <path d="M7.5 14.5l5-11"/>
+  <path d="M9.5 16.5l5-11"/>
+  <path d="M5.5 12.5l5-11"/>
+  <!-- Cuerdas horizontales -->
+  <path d="M4.5 9.5l11-5"/>
+  <path d="M5.5 12l11-5"/>
+  <path d="M6.5 14.5l11-5"/>
+  <!-- Pelotita -->
+  <circle cx="20.5" cy="4.5" r="2" fill="currentColor" opacity="0.6"/>
+  <path d="M19.5 3.5a2 2 0 0 1 0 2" stroke="currentColor" stroke-width="1" opacity="0.9"/>
+</svg>

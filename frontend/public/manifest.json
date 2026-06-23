@@ -1,0 +1,104 @@
+{
+  "name": "TuParley - Sistema de Apuestas",
+  "short_name": "TuParley",
+  "description": "Sistema de gestión de apuestas deportivas parley para bodegas venezolanas",
+  "start_url": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "landscape",
+  "background_color": "#0f172a",
+  "theme_color": "#10b981",
+  "lang": "es-VE",
+  "dir": "ltr",
+  "scope": "/",
+  "prefer_related_applications": false,
+  "categories": ["business", "finance"],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva Apuesta",
+      "short_name": "Apostar",
+      "description": "Crear un nuevo ticket de apuesta",
+      "url": "/dashboard",
+      "icons": [
+        {
+          "src": "/icons/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Buscar Ticket",
+      "short_name": "Buscar",
+      "description": "Buscar ticket por número de serie",
+      "url": "/dashboard?buscar=1",
+      "icons": [
+        {
+          "src": "/icons/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ],
+  "screenshots": [],
+  "protocol_handlers": [],
+  "related_applications": [],
+  "edge_side_panel": {
+    "preferred_width": 480
+  }
+}

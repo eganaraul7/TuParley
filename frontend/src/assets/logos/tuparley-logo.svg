@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" fill="none">
+  <!-- Ícono ticket -->
+  <rect x="0" y="8" width="36" height="32" rx="5" fill="#1e293b"/>
+  <rect x="0" y="8" width="36" height="8" rx="5" fill="#10b981"/>
+  <rect x="6" y="22" width="24" height="2.5" rx="1.25" fill="#94a3b8"/>
+  <rect x="6" y="28" width="16" height="2.5" rx="1.25" fill="#94a3b8"/>
+  <circle cx="36" cy="24" r="4" fill="#0f172a"/>
+  <!-- "TP" monograma -->
+  <text x="8" y="14.5" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="7" fill="#0f172a">TP</text>
+  <!-- Wordmark -->
+  <text x="44" y="26" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="18" fill="#ffffff">Tu<tspan fill="#10b981">Parley</tspan></text>
+  <!-- Tagline -->
+  <text x="44" y="38" font-family="Inter, Arial, sans-serif" font-weight="400" font-size="8" fill="#94a3b8" letter-spacing="1.5">SISTEMA DE APUESTAS</text>
+</svg>

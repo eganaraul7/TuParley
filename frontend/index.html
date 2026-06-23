@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es-VE">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!-- viewport fijo para tablets 10-12" en landscape, sin zoom accidental -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+
+    <title>TuParley — Sistema de Apuestas</title>
+    <meta name="description" content="Sistema de gestión de apuestas deportivas parley para bodegas venezolanas." />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="background-color" content="#0f172a" />
+
+    <!-- íconos -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+
+    <!-- modo standalone en iOS/Android (kiosko) -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="TuParley" />
+
+    <!-- evitar selección de texto / highlight táctil molesto en POS -->
+    <meta name="format-detection" content="telephone=no" />
+  </head>
+  <body class="bg-[#0f172a]">
+    <div id="root"></div>
+    <noscript>Activa JavaScript para usar TuParley.</noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

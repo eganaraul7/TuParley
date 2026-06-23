@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* tablets en bodega: evitar selección de texto accidental y highlight táctil azul */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none; /* sin pull-to-refresh accidental en kiosko */
+}
+
+/* inputs y textareas SÍ deben permitir selección normal */
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
