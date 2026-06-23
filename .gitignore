@@ -3,3 +3,18 @@
 [Oo]bj/
 *.user
 *.suo
+
+# Dependencias (Nunca se suben porque son pesadísimas)
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Archivos de producción y compilación
+frontend/dist/
+
+# EL ESCUDO DE TUS CONTRASENIAS REALES
+backend/.env
+frontend/.env
+
+# Configuración del editor (para limpiar esa carpeta que se subió)
+.vscode/
