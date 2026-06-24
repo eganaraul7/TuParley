@@ -1,0 +1,90 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tuparley-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-tuparley}
+      MYSQL_USER: ${MYSQL_USER:-tuparley}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tuparleypass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - tuparley-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: tuparley-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - tuparley-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: tuparley-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+
+      # DB
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER:-tuparley}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-tuparleypass}
+      DB_NAME: ${MYSQL_DATABASE:-tuparley}
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # CORS
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+
+      # Socket / App
+      PORT: ${BACKEND_PORT:-3001}
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: tuparley-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # En Vite normalmente se usa import.meta.env.* para prefijar.
+      # Este compose no forza nada si no tienes variables en tu build,
+      # pero sirve para configurar api si tu app lo soporta.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001/api}
+    ports:
+      - "5173:5173"
+
+volumes:
+  tuparley-mysql-data:
+  tuparley-redis-data:
+
