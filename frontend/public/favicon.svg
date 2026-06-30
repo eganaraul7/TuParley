@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="90" fill="#0f172a"/>
+  <g transform="translate(86,118)">
+    <rect x="0" y="0" width="340" height="276" rx="36" fill="#1e293b"/>
+    <rect x="0" y="0" width="340" height="64" rx="36" fill="#10b981"/>
+    <rect x="40" y="120" width="220" height="22" rx="11" fill="#94a3b8"/>
+    <rect x="40" y="164" width="150" height="22" rx="11" fill="#94a3b8"/>
+    <circle cx="340" cy="138" r="34" fill="#0f172a"/>
+    <text x="46" y="46" font-family="Arial, sans-serif" font-weight="700" font-size="44" fill="#0f172a">TP</text>
+  </g>
+</svg>

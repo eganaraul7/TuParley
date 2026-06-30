@@ -113,8 +113,8 @@ function _calcularRangoExport(tipo, q) {
 async function _obtenerEstadisticas(req) {
   const { bodega_id, anio = new Date().getFullYear() } = req.query;
   let sql = `SELECT em.*, b.nombre AS bodega_nombre, b.prefijo AS bodega_prefijo
-                FROM estadisticas_mensuales em
-                LEFT JOIN bodegas b ON b.id = em.bodega_id
+               FROM estadisticas_mensuales em
+               LEFT JOIN bodegas b ON b.id = em.bodega_id
               WHERE em.anio = ?`;
   const params = [anio];
   if (bodega_id) { sql += ' AND em.bodega_id = ?'; params.push(bodega_id); }

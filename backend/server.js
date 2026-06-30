@@ -14,27 +14,28 @@ const deportesJob    = require('./src/jobs/deportes.job');
 const caducidadJob   = require('./src/jobs/caducidad.job');
 
 async function arrancar() {
-  // Verificar conexiones
   await testDb();
   await testRedis();
 
   const server = http.createServer(app);
 
+  const ORIGENES_PERMITIDOS = [
+    process.env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ].filter(Boolean);
+
   const io = new Server(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || '*',
+      origin: ORIGENES_PERMITIDOS,
       methods: ['GET', 'POST'],
     },
     transports: ['websocket', 'polling'],
   });
 
-  // Registrar socket handler
   iniciarSocket(io);
-
-  // Disponibilizar io en app para controllers/routes
   app.set('io', io);
 
-  // Arrancar cron jobs
   bcvJob.iniciar(io);
   deportesJob.iniciar(io);
   caducidadJob.iniciar(io);
@@ -44,7 +45,6 @@ async function arrancar() {
     console.log(`[server] Entorno: ${process.env.NODE_ENV ?? 'development'}`);
   });
 
-  // Apagado limpio
   process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
   process.on('SIGINT',  () => { server.close(() => process.exit(0)); });
 }

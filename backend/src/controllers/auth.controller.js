@@ -37,10 +37,10 @@ const ROLES_ADMIN  = ['computadora_madre', 'administrador'];
 const TEMP_TOKEN_TTL = '5m';
 const SELECT_USUARIO_LOGIN = `
   SELECT u.id, u.nombre_usuario, u.contrasena_hash, u.rol, u.bodega_id,
-          u.bloqueado, u.intentos_fallidos, u.sesion_activa,
-          u.hora_apertura_sesion, u.totp_secret, u.totp_habilitado,
-          b.nombre  AS bodega_nombre,
-          b.prefijo AS bodega_prefijo
+         u.bloqueado, u.intentos_fallidos, u.sesion_activa,
+         u.hora_apertura_sesion, u.totp_secret, u.totp_habilitado,
+         b.nombre  AS bodega_nombre,
+         b.prefijo AS bodega_prefijo
     FROM usuarios u
     LEFT JOIN bodegas b ON b.id = u.bodega_id
 `;
