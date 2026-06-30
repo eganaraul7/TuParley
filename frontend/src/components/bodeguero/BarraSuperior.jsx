@@ -1,17 +1,15 @@
 // Archivo: BarraSuperior.jsx
 // Ruta: frontend/src/components/bodeguero/BarraSuperior.jsx
-// Función: barra superior del Dashboard — buscador de ticket, fecha/hora en
-//          vivo, tasa BCV, accesos a historial/cierre de caja/logout.
-//          Extraído de DashboardPage.jsx (Paso 2 de reorganización components/).
-//          Fix: se eliminó estado "buscando" que estaba declarado pero nunca usado.
-
 import { useState, useEffect } from 'react';
-import { Search, Clock, History, Wallet, LogOut } from 'lucide-react';
+import { Search, Clock, History, Wallet, LogOut, Printer, Usb, Bluetooth, Unlink } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { printerService } from '../../services/printerService';
 
 export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial, onCierreCaja, onLogout }) {
   const [ahora, setAhora]       = useState(new Date());
   const [busqueda, setBusqueda] = useState('');
+  const [estadoImpresora, setEstadoImpresora] = useState(() => printerService.estado());
+  const [menuImpresoraAbierto, setMenuImpresoraAbierto] = useState(false);
   const { usuario }             = useAuthStore((s) => s);
 
   useEffect(() => {
@@ -24,13 +22,41 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
     if (busqueda.trim()) { onBuscarSerie(busqueda.trim()); setBusqueda(''); }
   }
 
+  async function handleConectarUSB() {
+    try {
+      await printerService.conectarUSB();
+      setEstadoImpresora(printerService.estado());
+    } catch (err) {
+      console.error('[BarraSuperior] conectarUSB:', err);
+      alert(err.message ?? 'No se pudo conectar la impresora USB.');
+    } finally {
+      setMenuImpresoraAbierto(false);
+    }
+  }
+
+  async function handleConectarBluetooth() {
+    try {
+      await printerService.conectarBluetooth();
+      setEstadoImpresora(printerService.estado());
+    } catch (err) {
+      console.error('[BarraSuperior] conectarBluetooth:', err);
+      alert(err.message ?? 'No se pudo conectar la impresora Bluetooth.');
+    } finally {
+      setMenuImpresoraAbierto(false);
+    }
+  }
+
+  async function handleDesconectarImpresora() {
+    await printerService.desconectar();
+    setEstadoImpresora(printerService.estado());
+    setMenuImpresoraAbierto(false);
+  }
+
   return (
     <header className="h-14 bg-[#1e293b] border-b border-white/5 flex items-center px-4 gap-3 shrink-0">
 
-      {/* logo mínimo */}
       <span className="text-[#10b981] font-bold text-lg tracking-tight mr-2 shrink-0">TP</span>
 
-      {/* buscador serie */}
       <form onSubmit={handleBuscar} className="flex-1 max-w-xs relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#475569]" />
         <input
@@ -44,7 +70,6 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
 
       <div className="flex-1" />
 
-      {/* fecha y hora */}
       <div className="flex items-center gap-1.5 text-[#94a3b8] text-xs shrink-0">
         <Clock className="w-3.5 h-3.5" />
         <span>
@@ -54,7 +79,6 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
         </span>
       </div>
 
-      {/* tasa BCV */}
       <div className="bg-[#0f172a] border border-white/10 rounded-lg px-3 py-1.5 text-xs shrink-0">
         <span className="text-[#94a3b8]">BCV </span>
         <span className="text-[#10b981] font-bold">
@@ -63,7 +87,47 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
         <span className="text-[#475569]"> / $1</span>
       </div>
 
-      {/* historial */}
+      <div className="relative shrink-0">
+        <button
+          onClick={() => setMenuImpresoraAbierto((v) => !v)}
+          className={`w-9 h-9 flex items-center justify-center rounded-lg border transition
+            ${estadoImpresora.conectada
+              ? 'bg-[#10b981]/10 border-[#10b981]/40 text-[#10b981]'
+              : 'bg-[#0f172a] border-white/10 text-[#94a3b8] hover:text-white hover:border-white/20'}`}
+          title={estadoImpresora.conectada ? `Impresora: ${estadoImpresora.nombre}` : 'Conectar impresora'}
+        >
+          <Printer className="w-4 h-4" />
+        </button>
+
+        {menuImpresoraAbierto && (
+          <div className="absolute right-0 top-11 w-52 bg-[#0f172a] border border-white/10 rounded-xl shadow-2xl p-2 z-50 space-y-1">
+            <p className="text-[#94a3b8] text-[11px] px-2 pb-1">
+              {estadoImpresora.conectada ? `Conectada: ${estadoImpresora.nombre}` : 'Sin impresora conectada'}
+            </p>
+            <button
+              onClick={handleConectarUSB}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-white hover:bg-white/5 transition"
+            >
+              <Usb className="w-3.5 h-3.5 text-[#94a3b8]" /> Conectar USB
+            </button>
+            <button
+              onClick={handleConectarBluetooth}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-white hover:bg-white/5 transition"
+            >
+              <Bluetooth className="w-3.5 h-3.5 text-[#94a3b8]" /> Conectar Bluetooth (solo BLE)
+            </button>
+            {estadoImpresora.conectada && (
+              <button
+                onClick={handleDesconectarImpresora}
+                className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-[#ef4444] hover:bg-[#ef4444]/10 transition"
+              >
+                <Unlink className="w-3.5 h-3.5" /> Desconectar
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
       <button
         onClick={onAbrirHistorial}
         className="w-9 h-9 flex items-center justify-center rounded-lg bg-[#0f172a] border border-white/10 text-[#94a3b8] hover:text-white hover:border-white/20 transition"
@@ -72,7 +136,6 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
         <History className="w-4 h-4" />
       </button>
 
-      {/* cierre de caja — solo bodeguero */}
       {usuario?.rol === 'bodeguero' && (
         <button
           onClick={onCierreCaja}
@@ -83,7 +146,6 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
         </button>
       )}
 
-      {/* usuario + logout */}
       <div className="flex items-center gap-2">
         <span className="text-[#94a3b8] text-xs hidden sm:block">{usuario?.nombre_usuario}</span>
         <button

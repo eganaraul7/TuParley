@@ -4,6 +4,7 @@ const express  = require('express');
 const cors     = require('cors');
 const helmet   = require('helmet');
 const morgan   = require('morgan');
+const compression = require('compression');
 
 const authRoutes       = require('./routes/auth.routes');
 const usuarioRoutes    = require('./routes/usuario.routes');
@@ -18,9 +19,16 @@ const notificacionRoutes = require('./routes/notificacion.routes');
 const app = express();
 
 // ─── Seguridad y utilidades ───────────────────────────────────────────────────
+const ORIGENES_PERMITIDOS = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+
 app.use(helmet());
+app.use(compression());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: ORIGENES_PERMITIDOS,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -65,7 +73,12 @@ app.post('/api/bcv/manual', verificarToken, soloAdmin, async (req, res) => {
 });
 
 // ─── Modo mantenimiento ───────────────────────────────────────────────────────
-const { setCache, delCache, KEYS } = require('./config/redis');
+const { setCache, getCache, delCache, KEYS } = require('./config/redis');
+
+app.get('/api/admin/mantenimiento', verificarToken, soloAdmin, async (req, res) => {
+  const activo = await getCache(KEYS.MANTENIMIENTO);
+  return res.json({ activo: activo === '1' });
+});
 
 app.post('/api/admin/mantenimiento', verificarToken, soloAdmin, async (req, res) => {
   const { activo } = req.body;
@@ -81,6 +94,14 @@ app.post('/api/admin/mantenimiento', verificarToken, soloAdmin, async (req, res)
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
+
+// ─── Frontend (build de producción) ──────────────────────────────────────────
+const path        = require('path');
+const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
+app.use(express.static(frontendDist));
+app.get(/^(?!\/api).*/, (req, res, next) => {
+  res.sendFile(path.join(frontendDist, 'index.html'), (err) => { if (err) next(); });
+});
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: `Ruta ${req.method} ${req.path} no encontrada` }));

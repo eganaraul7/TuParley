@@ -1,10 +1,8 @@
 'use strict';
 
-const crypto  = require('crypto');
 const { query, getConnection }    = require('../config/db');
 const { getCache, KEYS }          = require('../config/redis');
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
+const { generarHashTicket, verificarHashTicket } = require('../services/hash.service');
 
 async function _log(usuarioId, accion, entidad_afectada, entidad_id, detalle, ip) {
   await query(
@@ -42,10 +40,6 @@ function _generarNumeroSerie(bodegaPrefijo) {
   return `${bodegaPrefijo}-${r4()}-${r4()}`;
 }
 
-function _generarHash(data) {
-  return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
-}
-
 function _calcularGanancia(montoUsd, cuotaCombinada) {
   return Math.round(montoUsd * cuotaCombinada * 100) / 100;
 }
@@ -53,15 +47,12 @@ function _calcularGanancia(montoUsd, cuotaCombinada) {
 const MAX_GANANCIA_USD = 300;
 const APUESTA_MINIMA   = 1;
 
-// ─── POST /api/tickets ────────────────────────────────────────────────────────
-
 async function crearTicket(req, res) {
   const { id: usuarioId, bodega_id, bodega_prefijo } = req.usuario;
   const ip = _ip(req);
 
   const { selecciones, monto_apostado_usd, moneda_pago, origen = 'online', hash_cliente } = req.body;
 
-  // --- validaciones básicas ---
   if (!selecciones || !Array.isArray(selecciones) || selecciones.length === 0) {
     return res.status(400).json({ error: 'Se requiere al menos una selección' });
   }
@@ -75,7 +66,6 @@ async function crearTicket(req, res) {
     return res.status(403).json({ error: 'El bodeguero no tiene bodega asignada' });
   }
 
-  // Evento único por ticket
   const eventosIds = selecciones.map(s => s.evento_id);
   if (new Set(eventosIds).size !== eventosIds.length) {
     return res.status(400).json({ error: 'No puedes incluir el mismo evento dos veces en un ticket' });
@@ -88,7 +78,6 @@ async function crearTicket(req, res) {
     const montoUsd = parseFloat(monto_apostado_usd);
     const tasa     = await _obtenerTasaBcv();
 
-    // --- validar cada selección ---
     let cuotaCombinada = 1;
     const seleccionesValidas = [];
 
@@ -99,7 +88,6 @@ async function crearTicket(req, res) {
         return res.status(400).json({ error: 'Cada selección necesita evento_id, modalidad_id y seleccion' });
       }
 
-      // evento activo y programado
       const [evento] = (await conn.query(
         `SELECT id, deporte, estado, activo, liga, equipo_local, equipo_visitante
             FROM eventos WHERE id = ? LIMIT 1`, [evento_id]
@@ -114,7 +102,6 @@ async function crearTicket(req, res) {
         return res.status(409).json({ error: `Evento ${evento_id} no está disponible para apuestas` });
       }
 
-      // categoría activa
       const [catConfig] = (await conn.query(
         `SELECT activa FROM categorias_config WHERE deporte = ? LIMIT 1`, [evento.deporte]
       ))[0];
@@ -123,7 +110,6 @@ async function crearTicket(req, res) {
         return res.status(409).json({ error: `Categoría ${evento.deporte} está desactivada` });
       }
 
-      // modalidad activa y del mismo deporte
       const [modalidad] = (await conn.query(
         `SELECT id, cuota_base, nombre, activa, deporte
             FROM modalidades WHERE id = ? LIMIT 1`, [modalidad_id]
@@ -141,10 +127,8 @@ async function crearTicket(req, res) {
       seleccionesValidas.push({ evento_id, modalidad_id, seleccion, cuota_aplicada: parseFloat(modalidad.cuota_base) });
     }
 
-    // --- calcular ganancia potencial ---
     let gananciaPotencialUsd = _calcularGanancia(montoUsd, cuotaCombinada);
 
-    // Ajustar monto si supera $300
     if (gananciaPotencialUsd > MAX_GANANCIA_USD) {
       const montoAjustado = Math.floor((MAX_GANANCIA_USD / cuotaCombinada) * 100) / 100;
       await conn.rollback(); conn.release();
@@ -158,7 +142,6 @@ async function crearTicket(req, res) {
     const gananciaPotencialBs = Math.round(gananciaPotencialUsd * tasa * 100) / 100;
     const montoApostadoBs     = Math.round(montoUsd * tasa * 100) / 100;
 
-    // --- generar numero_serie único ---
     let numeroSerie;
     let serieUnica = false;
     let intentos = 0;
@@ -175,12 +158,13 @@ async function crearTicket(req, res) {
       return res.status(500).json({ error: 'Error generando número de serie, reintenta' });
     }
 
-    // --- hash SHA-256 ---
     const ahora      = new Date();
-    const hashInput  = { numeroSerie, bodega_id, usuarioId, montoUsd, cuotaCombinada, seleccionesValidas, ts: ahora.toISOString() };
-    const hashSha256 = _generarHash(hashInput);
+    const hashSha256 = generarHashTicket({
+      numero_serie: numeroSerie, bodega_id, usuario_id: usuarioId,
+      monto_apostado_usd: montoUsd, cuota_combinada: cuotaCombinada,
+      selecciones: seleccionesValidas, ts: ahora.getTime(),
+    });
 
-    // --- insertar ticket ---
     const [ticketResult] = await conn.query(
       `INSERT INTO tickets
           (numero_serie, bodega_id, usuario_id, monto_apostado_usd, monto_apostado_bs,
@@ -198,7 +182,6 @@ async function crearTicket(req, res) {
     );
     const ticketId = ticketResult.insertId;
 
-    // --- insertar selecciones ---
     for (const sel of seleccionesValidas) {
       await conn.query(
         `INSERT INTO selecciones_ticket (ticket_id, evento_id, modalidad_id, cuota_aplicada, seleccion, resultado)
@@ -210,7 +193,6 @@ async function crearTicket(req, res) {
     await conn.commit();
     conn.release();
 
-    // --- notificar si ganancia alta ---
     if (gananciaPotencialUsd >= 200) {
       await _notificar(
         'ticket_ganador',
@@ -248,10 +230,8 @@ async function crearTicket(req, res) {
   }
 }
 
-// ─── POST /api/tickets/sync-offline ──────────────────────────────────────────
-
 async function sincronizarOffline(req, res) {
-  const { cola } = req.body; // array de tickets offline con sus hashes
+  const { cola } = req.body;
   if (!Array.isArray(cola) || cola.length === 0) {
     return res.status(400).json({ error: 'cola debe ser un arreglo no vacío' });
   }
@@ -261,35 +241,24 @@ async function sincronizarOffline(req, res) {
     const { hash_sha256, numero_serie, bodega_id, usuario_id, monto_apostado_usd,
             cuota_combinada, selecciones, ts, moneda_pago } = ticketOffline;
 
-    // Verificar hash
-    const hashEsperado = _generarHash({
-      numeroSerie: numero_serie, bodega_id, usuarioId: usuario_id,
-      montoUsd: monto_apostado_usd, cuotaCombinada: cuota_combinada,
-      seleccionesValidas: selecciones, ts,
-    });
+    const hashValido = verificarHashTicket(
+      { numero_serie, bodega_id, usuario_id, monto_apostado_usd, cuota_combinada, selecciones, ts },
+      hash_sha256,
+    );
 
-    if (hashEsperado !== hash_sha256) {
+    if (!hashValido) {
       resultados.push({ numero_serie, estado: 'rechazado', motivo: 'Hash inválido — ticket modificado' });
       await _log(req.usuario.id, 'sync_offline_rechazado', 'tickets', null,
         { numero_serie, motivo: 'hash_invalido' }, _ip(req));
       continue;
     }
 
-    // Verificar si ya existe
     const existe = await query(`SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [numero_serie]);
     if (existe.length > 0) {
       resultados.push({ numero_serie, estado: 'ya_existe' });
       continue;
     }
 
-    // Crear ticket igual que online pero con origen='offline', sincronizado=1
-    const fakReq = {
-      body: { selecciones, monto_apostado_usd, moneda_pago, origen: 'offline' },
-      usuario: req.usuario,
-      ip: _ip(req),
-      headers: req.headers,
-    };
-    // Inserción directa para respetar el numero_serie y hash originales del offline
     try {
       const tasa = await _obtenerTasaBcv();
       const montoUsd = parseFloat(monto_apostado_usd);
@@ -328,8 +297,6 @@ async function sincronizarOffline(req, res) {
   return res.status(200).json({ resultados });
 }
 
-// ─── GET /api/tickets ─────────────────────────────────────────────────────────
-
 async function listarTickets(req, res) {
   const { rol, bodega_id } = req.usuario;
   const { estado, fecha_desde, fecha_hasta, page = 1, limit = 50 } = req.query;
@@ -348,7 +315,6 @@ async function listarTickets(req, res) {
                 WHERE 1=1`;
     const params = [];
 
-    // Bodeguero solo ve su bodega
     if (rol === 'bodeguero') { sql += ' AND t.bodega_id = ?'; params.push(bodega_id); }
 
     if (estado)       { sql += ' AND t.estado = ?';                    params.push(estado); }
@@ -365,8 +331,6 @@ async function listarTickets(req, res) {
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 }
-
-// ─── GET /api/tickets/buscar?serie= ──────────────────────────────────────────
 
 async function buscarTicketPorSerie(req, res) {
   const { serie } = req.query;
@@ -407,8 +371,6 @@ async function buscarTicketPorSerie(req, res) {
   }
 }
 
-// ─── GET /api/tickets/:id ─────────────────────────────────────────────────────
-
 async function obtenerTicket(req, res) {
   const { id } = req.params;
   const { rol, bodega_id } = req.usuario;
@@ -447,8 +409,6 @@ async function obtenerTicket(req, res) {
   }
 }
 
-// ─── POST /api/tickets/:id/solicitar-anulacion ────────────────────────────────
-
 async function solicitarAnulacion(req, res) {
   const { id } = req.params;
   const { motivo } = req.body;
@@ -469,7 +429,6 @@ async function solicitarAnulacion(req, res) {
       return res.status(409).json({ error: `No se puede anular un ticket en estado ${ticket.estado}` });
     }
 
-    // Verificar que no haya solicitud pendiente activa
     const solExist = await query(
       `SELECT id FROM solicitudes_anulacion WHERE ticket_id = ? AND estado = 'pendiente' LIMIT 1`, [id]
     );
@@ -497,8 +456,6 @@ async function solicitarAnulacion(req, res) {
   }
 }
 
-// ─── GET /api/tickets/anulaciones ────────────────────────────────────────────
-
 async function listarSolicitudesAnulacion(req, res) {
   const { estado = 'pendiente' } = req.query;
   try {
@@ -521,11 +478,9 @@ async function listarSolicitudesAnulacion(req, res) {
   }
 }
 
-// ─── PATCH /api/tickets/anulaciones/:solicitudId ──────────────────────────────
-
 async function responderAnulacion(req, res) {
   const { solicitudId } = req.params;
-  const { decision } = req.body; // 'aprobada' | 'rechazada'
+  const { decision } = req.body;
   const { id: usuarioId } = req.usuario;
   const ip = _ip(req);
 
@@ -574,11 +529,9 @@ async function responderAnulacion(req, res) {
   }
 }
 
-// ─── POST /api/tickets/:id/pagar ─────────────────────────────────────────────
-
 async function procesarPago(req, res) {
   const { id } = req.params;
-  const { cedula_foto_url } = req.body; // requerida si ganancia = $300
+  const { cedula_foto_url } = req.body;
   const { id: usuarioId, bodega_id, rol } = req.usuario;
   const ip = _ip(req);
 
@@ -603,7 +556,6 @@ async function procesarPago(req, res) {
       return res.status(409).json({ error: `Solo se pueden pagar tickets en estado GANADO. Estado actual: ${ticket.estado}` });
     }
 
-    // Cédula obligatoria si ganancia = MAX
     if (parseFloat(ticket.ganancia_potencial_usd) >= MAX_GANANCIA_USD && !cedula_foto_url) {
       await conn.rollback(); conn.release();
       return res.status(400).json({ error: `Ganancia de $${MAX_GANANCIA_USD}: se requiere foto de cédula (cedula_foto_url)` });

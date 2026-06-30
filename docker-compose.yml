@@ -1,90 +1,63 @@
+# docker-compose.yml
+# Entorno de desarrollo local — MySQL 8 + Redis 7
+# Producción usa DigitalOcean Managed MySQL / Managed Redis (no este archivo).
+#
+# Uso:
+#   docker compose up -d
+#   (primer arranque: crea volúmenes vacíos → corre schema.sql, seeds.sql
+#    y migrations/002 en orden alfabético → DB lista con seed inicial)
+#
+# En backend/.env (para correr el backend en el host, fuera de Docker):
+#   DB_HOST=127.0.0.1
+#   DB_PORT=3306
+#   DB_NAME=tuparley
+#   DB_USER=tuparley_user
+#   DB_PASSWORD=tuparley_local_pass
+#   REDIS_HOST=127.0.0.1
+#   REDIS_PORT=6379
+#   REDIS_TLS=false
+
 services:
   mysql:
     image: mysql:8.0
-    container_name: tuparley-mysql
+    container_name: tuparley_mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-tuparley}
-      MYSQL_USER: ${MYSQL_USER:-tuparley}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tuparleypass}
+      MYSQL_ROOT_PASSWORD: root_local_pass
+      MYSQL_DATABASE: tuparley
+      MYSQL_USER: tuparley_user
+      MYSQL_PASSWORD: tuparley_local_pass
+      TZ: America/Caracas
     ports:
       - "3306:3306"
     volumes:
-      - tuparley-mysql-data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seeds.sql:/docker-entrypoint-initdb.d/02-seeds.sql:ro
+      - "./database/migrations/002 additional indexes.sql:/docker-entrypoint-initdb.d/03-indexes.sql:ro"
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-time-zone=-04:00
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_local_pass"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
 
   redis:
-    image: redis:7
-    container_name: tuparley-redis
+    image: redis:7-alpine
+    container_name: tuparley_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - tuparley-redis-data:/data
+      - redis_data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  backend:
-    build:
-      context: ./backend
-    container_name: tuparley-backend
-    restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-
-      # DB
-      DB_HOST: mysql
-      DB_PORT: 3306
-      DB_USER: ${MYSQL_USER:-tuparley}
-      DB_PASSWORD: ${MYSQL_PASSWORD:-tuparleypass}
-      DB_NAME: ${MYSQL_DATABASE:-tuparley}
-
-      # Redis
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-
-      # CORS
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
-
-      # Socket / App
-      PORT: ${BACKEND_PORT:-3001}
-
-      # JWT
-      JWT_SECRET: ${JWT_SECRET:-dev-secret}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
-
-    ports:
-      - "3001:3001"
-
-  frontend:
-    build:
-      context: ./frontend
-    container_name: tuparley-frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
-    environment:
-      # En Vite normalmente se usa import.meta.env.* para prefijar.
-      # Este compose no forza nada si no tienes variables en tu build,
-      # pero sirve para configurar api si tu app lo soporta.
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3001/api}
-    ports:
-      - "5173:5173"
-
 volumes:
-  tuparley-mysql-data:
-  tuparley-redis-data:
-
+  mysql_data:
+  redis_data:
