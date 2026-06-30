@@ -34,7 +34,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./database/seeds.sql:/docker-entrypoint-initdb.d/02-seeds.sql:ro
-      - "./database/migrations/002 additional indexes.sql:/docker-entrypoint-initdb.d/03-indexes.sql:ro"
+      - "./database/migrations/002_additional_indexes.sql:/docker-entrypoint-initdb.d/03-indexes.sql:ro"
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-time-zone=-04:00
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_local_pass"]
