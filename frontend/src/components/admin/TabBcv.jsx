@@ -17,8 +17,8 @@ export default function TabBcv() {
 
   async function handleGuardar() {
     const num = Number(valor);
-    if (isNaN(num) || num < 30 || num > 200) {
-      setError('El valor debe estar entre 30 y 200 Bs/$.');
+    if (isNaN(num) || num < 100 || num > 5000) {
+      setError('El valor debe estar entre 100 y 5000 Bs/$.');
       return;
     }
     setGuardando(true); setError(''); setOk(false);
@@ -45,12 +45,12 @@ export default function TabBcv() {
         </label>
         <div className="relative">
           <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94a3b8] text-xs font-bold">Bs</span>
-          <input type="number" min="30" max="200" step="0.01"
+          <input type="number" min="100" max="5000" step="0.01"
             value={valor} onChange={(e) => { setValor(e.target.value); setOk(false); setError(''); }}
             placeholder="45.20"
             className="w-full bg-[#0f172a] text-white border border-white/10 rounded-xl pl-9 pr-4 py-3 text-right font-bold focus:outline-none focus:border-[#10b981]" />
         </div>
-        <p className="text-[#475569] text-xs mt-1">Rango válido: 30 – 200 Bs/$</p>
+        
       </div>
 
       {error && <p className="text-[#ef4444] text-xs">{error}</p>}
