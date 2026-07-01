@@ -9,7 +9,7 @@
 #
 # En backend/.env (para correr el backend en el host, fuera de Docker):
 #   DB_HOST=127.0.0.1
-#   DB_PORT=3306
+#   DB_PORT=3307
 #   DB_NAME=tuparley
 #   DB_USER=tuparley_user
 #   DB_PASSWORD=tuparley_local_pass
@@ -29,7 +29,7 @@ services:
       MYSQL_PASSWORD: tuparley_local_pass
       TZ: America/Caracas
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
