@@ -4,8 +4,8 @@ const { query }                         = require('../config/db');
 const { setCache, getCache, KEYS, TTL } = require('../config/redis');
 const { API_BCV_URL, BCV_RANGO_MINIMO, BCV_RANGO_MAXIMO } = require('../config/env');
 
-const RANGO_MIN = parseFloat(BCV_RANGO_MINIMO ?? 30);
-const RANGO_MAX = parseFloat(BCV_RANGO_MAXIMO ?? 200);
+const RANGO_MIN = parseFloat(BCV_RANGO_MINIMO ?? 300);
+const RANGO_MAX = parseFloat(BCV_RANGO_MAXIMO ?? 4000);
 
 async function _notificarAdminBcv(mensaje) {
   await query(
