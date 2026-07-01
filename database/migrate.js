@@ -11,7 +11,7 @@ const FILES = [
   path.join(__dirname, 'schema.sql'),
   path.join(__dirname, 'seeds.sql'),
   path.join(__dirname, 'migrations', '001_initial_schema.sql'),
-  path.join(__dirname, 'migrations', '002_additional_indexes.sql'),
+  //path.join(__dirname, 'migrations', '002_additional_indexes.sql'),
 ];
 
 async function migrate() {

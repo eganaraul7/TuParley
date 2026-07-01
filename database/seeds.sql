@@ -16,14 +16,14 @@ SET foreign_key_checks = 0;
 -- ============================================================
 -- 1. BODEGA CENTRAL (inicial)
 -- ============================================================
-INSERT INTO bodegas (id, nombre, ubicacion, prefijo, activa) VALUES
+INSERT IGNORE INTO bodegas (id, nombre, ubicacion, prefijo, activa) VALUES
 (1, 'Bodega Central', 'Caracas, Venezuela', 'B1', 1);
 
 -- ============================================================
 -- 2. COMPUTADORA MADRE
 -- Hash de: Admin@TuParley2024!  (bcrypt cost 12)
 -- ============================================================
-INSERT INTO usuarios (
+INSERT IGNORE INTO usuarios (
   id, nombre_usuario, contrasena_hash, rol,
   bodega_id, bloqueado, intentos_fallidos,
   sesion_activa, totp_habilitado
@@ -38,7 +38,7 @@ INSERT INTO usuarios (
 -- ============================================================
 -- 3. CONFIGURACION DEL SISTEMA
 -- ============================================================
-INSERT INTO configuracion_sistema (clave, valor, descripcion, actualizado_por) VALUES
+INSERT IGNORE INTO configuracion_sistema (clave, valor, descripcion, actualizado_por) VALUES
 ('max_ganancia_usd',       '300',   'Ganancia máxima por ticket en USD',                  1),
 ('apuesta_minima_usd',     '1',     'Apuesta mínima en USD',                              1),
 ('modo_mantenimiento',     '0',     '1=sistema en mantenimiento, 0=operativo',            1),
@@ -54,7 +54,7 @@ INSERT INTO configuracion_sistema (clave, valor, descripcion, actualizado_por) V
 -- ============================================================
 -- 4. CATEGORIAS CONFIG (todas activas por defecto)
 -- ============================================================
-INSERT INTO categorias_config (deporte, activa, actualizado_por) VALUES
+INSERT IGNORE INTO categorias_config (deporte, activa, actualizado_por) VALUES
 ('futbol',      1, 1),
 ('baloncesto',  1, 1),
 ('beisbol',     1, 1),
@@ -64,13 +64,13 @@ INSERT INTO categorias_config (deporte, activa, actualizado_por) VALUES
 -- ============================================================
 -- 5. TASA BCV INICIAL (placeholder — se actualiza vía API)
 -- ============================================================
-INSERT INTO tasa_bcv (valor, fuente, validada, actualizado_por, fecha) VALUES
+INSERT IGNORE INTO tasa_bcv (valor, fuente, validada, actualizado_por, fecha) VALUES
 (45.20, 'manual', 1, 1, CURDATE());
 
 -- ============================================================
 -- 6. MODALIDADES — FÚTBOL (5)
 -- ============================================================
-INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
+INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
 (
   'futbol',
   'Doble Oportunidad',
@@ -110,7 +110,7 @@ INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxim
 -- ============================================================
 -- 7. MODALIDADES — BALONCESTO (5)
 -- ============================================================
-INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
+INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
 (
   'baloncesto',
   'Ganador del Partido',
@@ -150,7 +150,7 @@ INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxim
 -- ============================================================
 -- 8. MODALIDADES — BÉISBOL (5)
 -- ============================================================
-INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
+INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
 (
   'beisbol',
   'Ganador del Partido (Moneyline)',
@@ -190,7 +190,7 @@ INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxim
 -- ============================================================
 -- 9. MODALIDADES — CARRERAS DE CABALLOS (5)
 -- ============================================================
-INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
+INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
 (
   'caballos',
   'Ganador (Win)',
@@ -230,7 +230,7 @@ INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxim
 -- ============================================================
 -- 10. MODALIDADES — TENIS (5)
 -- ============================================================
-INSERT INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
+INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
 (
   'tenis',
   'Ganador del Partido',

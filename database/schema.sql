@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 -- ============================================================
 -- TABLA: bodegas
 -- ============================================================
-CREATE TABLE bodegas (
+CREATE TABLE IF NOT EXISTS bodegas (
   id         INT UNSIGNED  AUTO_INCREMENT,
   nombre     VARCHAR(100)  NOT NULL,
   ubicacion  VARCHAR(255)  NULL,
@@ -43,7 +43,7 @@ CREATE TABLE bodegas (
 -- ============================================================
 -- TABLA: usuarios
 -- ============================================================
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
   id                   INT UNSIGNED     AUTO_INCREMENT,
   nombre_usuario       VARCHAR(50)      NOT NULL,
   contrasena_hash      VARCHAR(255)     NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE usuarios (
 -- ============================================================
 -- TABLA: configuracion_sistema
 -- ============================================================
-CREATE TABLE configuracion_sistema (
+CREATE TABLE IF NOT EXISTS configuracion_sistema (
   clave           VARCHAR(100) NOT NULL,
   valor           VARCHAR(500) NOT NULL,
   descripcion     VARCHAR(255) NULL,
@@ -79,7 +79,7 @@ CREATE TABLE configuracion_sistema (
 -- ============================================================
 -- TABLA: tasa_bcv
 -- ============================================================
-CREATE TABLE tasa_bcv (
+CREATE TABLE IF NOT EXISTS tasa_bcv (
   id              INT UNSIGNED  AUTO_INCREMENT,
   valor           DECIMAL(10,4) NOT NULL,
   fuente          ENUM('api','manual') NOT NULL DEFAULT 'api',
@@ -95,7 +95,7 @@ CREATE TABLE tasa_bcv (
 -- ============================================================
 -- TABLA: categorias_config
 -- ============================================================
-CREATE TABLE categorias_config (
+CREATE TABLE IF NOT EXISTS categorias_config (
   deporte         ENUM('futbol','baloncesto','beisbol','caballos','tenis') NOT NULL,
   activa          TINYINT(1)   NOT NULL DEFAULT 1,
   actualizado_por INT UNSIGNED NULL,
@@ -107,7 +107,7 @@ CREATE TABLE categorias_config (
 -- ============================================================
 -- TABLA: eventos
 -- ============================================================
-CREATE TABLE eventos (
+CREATE TABLE IF NOT EXISTS eventos (
   id               INT UNSIGNED  AUTO_INCREMENT,
   api_evento_id    VARCHAR(100)  NULL,
   deporte          ENUM('futbol','baloncesto','beisbol','caballos','tenis') NOT NULL,
@@ -130,7 +130,7 @@ CREATE TABLE eventos (
 -- ============================================================
 -- TABLA: modalidades
 -- ============================================================
-CREATE TABLE modalidades (
+CREATE TABLE IF NOT EXISTS modalidades (
   id           INT UNSIGNED AUTO_INCREMENT,
   deporte      ENUM('futbol','baloncesto','beisbol','caballos','tenis') NOT NULL,
   nombre       VARCHAR(100) NOT NULL,
@@ -150,7 +150,7 @@ CREATE TABLE modalidades (
 -- ============================================================
 -- TABLA: tickets
 -- ============================================================
-CREATE TABLE tickets (
+CREATE TABLE IF NOT EXISTS tickets (
   id                      INT UNSIGNED  AUTO_INCREMENT,
   numero_serie            VARCHAR(20)   NOT NULL,
   bodega_id               INT UNSIGNED  NOT NULL,
@@ -187,7 +187,7 @@ CREATE TABLE tickets (
 -- ============================================================
 -- TABLA: selecciones_ticket
 -- ============================================================
-CREATE TABLE selecciones_ticket (
+CREATE TABLE IF NOT EXISTS selecciones_ticket (
   id             INT UNSIGNED AUTO_INCREMENT,
   ticket_id      INT UNSIGNED NOT NULL,
   evento_id      INT UNSIGNED NOT NULL,
@@ -208,7 +208,7 @@ CREATE TABLE selecciones_ticket (
 -- ============================================================
 -- TABLA: pagos
 -- ============================================================
-CREATE TABLE pagos (
+CREATE TABLE IF NOT EXISTS pagos (
   id                 INT UNSIGNED  AUTO_INCREMENT,
   ticket_id          INT UNSIGNED  NOT NULL,
   monto_pagado_usd   DECIMAL(10,2) NOT NULL,
@@ -227,7 +227,7 @@ CREATE TABLE pagos (
 -- ============================================================
 -- TABLA: solicitudes_anulacion
 -- ============================================================
-CREATE TABLE solicitudes_anulacion (
+CREATE TABLE IF NOT EXISTS solicitudes_anulacion (
   id             INT UNSIGNED AUTO_INCREMENT,
   ticket_id      INT UNSIGNED NOT NULL,
   solicitado_por INT UNSIGNED NOT NULL,
@@ -248,7 +248,7 @@ CREATE TABLE solicitudes_anulacion (
 -- ============================================================
 -- TABLA: cierre_caja
 -- ============================================================
-CREATE TABLE cierre_caja (
+CREATE TABLE IF NOT EXISTS cierre_caja (
   id                  INT UNSIGNED   AUTO_INCREMENT,
   usuario_id          INT UNSIGNED   NOT NULL,
   bodega_id           INT UNSIGNED   NOT NULL,
@@ -276,7 +276,7 @@ CREATE TABLE cierre_caja (
 -- ============================================================
 -- TABLA: auditoria_logs
 -- ============================================================
-CREATE TABLE auditoria_logs (
+CREATE TABLE IF NOT EXISTS auditoria_logs (
   id               BIGINT UNSIGNED AUTO_INCREMENT,
   usuario_id       INT UNSIGNED    NULL,
   accion           VARCHAR(100)    NOT NULL,
@@ -295,7 +295,7 @@ CREATE TABLE auditoria_logs (
 -- ============================================================
 -- TABLA: notificaciones
 -- ============================================================
-CREATE TABLE notificaciones (
+CREATE TABLE IF NOT EXISTS notificaciones (
   id               INT UNSIGNED AUTO_INCREMENT,
   tipo             ENUM(
                       'usuario_bloqueado',
@@ -323,7 +323,7 @@ CREATE TABLE notificaciones (
 -- ============================================================
 -- TABLA: solicitudes_reingreso
 -- ============================================================
-CREATE TABLE solicitudes_reingreso (
+CREATE TABLE IF NOT EXISTS solicitudes_reingreso (
   id             INT UNSIGNED AUTO_INCREMENT,
   usuario_id     INT UNSIGNED NOT NULL,
   hora_solicitud DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -341,7 +341,7 @@ CREATE TABLE solicitudes_reingreso (
 -- ============================================================
 -- TABLA: estadisticas_mensuales
 -- ============================================================
-CREATE TABLE estadisticas_mensuales (
+CREATE TABLE IF NOT EXISTS estadisticas_mensuales (
   id                          INT UNSIGNED      AUTO_INCREMENT,
   bodega_id                   INT UNSIGNED      NULL,
   mes                         TINYINT UNSIGNED  NOT NULL,
