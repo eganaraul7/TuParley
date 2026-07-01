@@ -28,7 +28,7 @@ async function actualizarTasaDesdeApi() {
     const res   = await axios.get(API_BCV_URL, { timeout: 8000 });
     const valor = parseFloat(res.data?.USD ?? res.data?.dolar ?? res.data?.bcv ?? 0);
 
-    if (!valor || valor < RANGO_MIN || valor > RANGO_MAX) {
+    if (!valor) {
       await _notificarAdminBcv(
         `API BCV retornó valor fuera de rango (${valor} Bs/$). Tasa manual requerida.`
       );
@@ -50,11 +50,11 @@ async function actualizarTasaDesdeApi() {
 
 async function setTasaManual(valor, usuario_id) {
   const v = parseFloat(valor);
-  if (!v || v < RANGO_MIN || v > RANGO_MAX)
+  if (!v)
     throw new Error(`Valor fuera del rango permitido (${RANGO_MIN}–${RANGO_MAX} Bs/$)`);
   await query(
     `INSERT INTO tasa_bcv (valor, fuente, validada, actualizado_por, fecha)
-     VALUES (?, 'manual', 1, ?, CURDATE())`,
+      VALUES (?, 'manual', 1, ?, CURDATE())`,
     [v, usuario_id]
   );
   await setCache(KEYS.BCV_TASA_ACTUAL, JSON.stringify({ valor: v }), TTL.BCV_TASA);

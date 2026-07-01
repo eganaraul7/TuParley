@@ -58,9 +58,14 @@ const env = {
   TOTP_APP_NAME : process.env.TOTP_APP_NAME || 'TuParley',
 
   // ── APIs externas ────────────────────────────────────────────
-  API_SPORTS_KEY     : process.env.API_SPORTS_KEY     || '',
-  API_SPORTS_BASE_URL: process.env.API_SPORTS_BASE_URL || 'https://v3.football.api-sports.io',
-  API_BCV_URL        : process.env.API_BCV_URL         || 'https://ve.dolarapi.com/v1/dolares/oficial',
+  API_SPORTS_KEY          : process.env.API_SPORTS_KEY           || '',
+  API_SPORTS_URL_FUTBOL   : process.env.API_SPORTS_URL_FUTBOL    || 'https://v3.football.api-sports.io',
+  API_SPORTS_URL_BALONCESTO: process.env.API_SPORTS_URL_BALONCESTO || 'https://v1.basketball.api-sports.io',
+  API_SPORTS_URL_BEISBOL  : process.env.API_SPORTS_URL_BEISBOL   || 'https://v1.baseball.api-sports.io',
+  API_SPORTS_URL_TENIS    : process.env.API_SPORTS_URL_TENIS     || 'https://v1.tennis.api-sports.io',
+  API_RACING_KEY          : process.env.API_RACING_KEY           || '',
+  API_RACING_URL          : process.env.API_RACING_URL           || 'https://api.theracingapi.com/v1',
+  API_BCV_URL             : process.env.API_BCV_URL              || 'https://ve.dolarapi.com/v1/dolares/oficial',
 
   // ── Zona horaria ─────────────────────────────────────────────
   TZ: 'America/Caracas',
