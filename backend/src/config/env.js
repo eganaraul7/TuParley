@@ -58,13 +58,17 @@ const env = {
   TOTP_APP_NAME : process.env.TOTP_APP_NAME || 'TuParley',
 
   // ── APIs externas ────────────────────────────────────────────
-  API_SPORTS_KEY          : process.env.API_SPORTS_KEY           || '',
+  API_SPORTS_KEY          : process.env.API_SPORTS_KEY           || '45f2d19dd61834d09e9acb00b17f6fe4',
   API_SPORTS_URL_FUTBOL   : process.env.API_SPORTS_URL_FUTBOL    || 'https://v3.football.api-sports.io',
   API_SPORTS_URL_BALONCESTO: process.env.API_SPORTS_URL_BALONCESTO || 'https://v1.basketball.api-sports.io',
   API_SPORTS_URL_BEISBOL  : process.env.API_SPORTS_URL_BEISBOL   || 'https://v1.baseball.api-sports.io',
-  API_SPORTS_URL_TENIS    : process.env.API_SPORTS_URL_TENIS     || 'https://v1.tennis.api-sports.io',
+
+  API_TENNIS_KEY            : process.env.API_TENNIS_KEY             || '45f2d19dd61834d09e9acb00b17f6fe4',
+  API_SPORTS_URL_TENIS    : process.env.API_SPORTS_URL_TENIS     || 'https://tennisapi1.p.rapidapi.com/api/tennis/event/14232981/odds',
+
   API_RACING_KEY          : process.env.API_RACING_KEY           || '',
-  API_RACING_URL          : process.env.API_RACING_URL           || 'https://api.theracingapi.com/v1',
+  API_RACING_URL          : process.env.API_RACING_URL           || '',
+
   API_BCV_URL             : process.env.API_BCV_URL              || 'https://ve.dolarapi.com/v1/dolares/oficial',
 
   // ── Zona horaria ─────────────────────────────────────────────

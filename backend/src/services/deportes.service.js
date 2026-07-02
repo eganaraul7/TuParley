@@ -4,8 +4,6 @@ const { query } = require('../config/db');
 const env       = require('../config/env');
 
 // ── Configuración por deporte ─────────────────────────────────────────────────
-// Cada deporte usa su propia URL base de API-Sports, pero el mismo API Key.
-// Caballos usa theracingapi.com (API separada, key separada).
 const DEPORTES_CONFIG = {
   futbol: {
     url:      env.API_SPORTS_URL_FUTBOL,
@@ -39,11 +37,9 @@ const DEPORTES_CONFIG = {
   },
 };
 
-// ── Normalizadores — cada API devuelve datos en formato distinto ──────────────
+// ── Normalizadores ────────────────────────────────────────────────────────────
 
 function _normalizarApisports(f, deporte) {
-  // Fútbol: f.fixture, f.teams, f.league
-  // Baloncesto/Béisbol: f.id, f.teams, f.league, f.date
   const api_evento_id = String(f.fixture?.id ?? f.id ?? '');
   const liga          = f.league?.name ?? f.competition?.name ?? 'Liga';
   const equipoLocal   = f.teams?.home?.name ?? '';
@@ -53,22 +49,19 @@ function _normalizarApisports(f, deporte) {
 }
 
 function _normalizarRacing(carrera) {
-  // theracingapi: { race_id, course, race_name, off_dt, runners[] }
   const api_evento_id = String(carrera.race_id ?? '');
   const liga          = carrera.course ?? 'Hipódromo';
   const runners       = carrera.runners ?? [];
-  // Para carreras: equipo_local = "Carrera #N", equipo_visitante = lista de caballos resumida
   const equipoLocal   = carrera.race_name ?? `Carrera`;
   const equipoVisit   = runners.slice(0, 3).map(r => r.horse ?? r.name).join(', ') || 'Sin jinetes';
   const fechaStr      = carrera.off_dt ?? null;
   return { api_evento_id, deporte: 'caballos', liga, equipoLocal, equipoVisit, fechaStr };
 }
 
-// ── Obtener partidos de la semana por deporte ─────────────────────────────────
+// ── Fetch por deporte ─────────────────────────────────────────────────────────
 
 async function _fetchDeporte(deporte, config) {
   if (config.tipo === 'racing') {
-    // theracingapi: GET /racecards/free — devuelve carreras del día
     const res = await axios.get(`${config.url}${config.endpoint}`, {
       headers: { 'x-api-key': config.key },
       timeout: 10000,
@@ -77,14 +70,27 @@ async function _fetchDeporte(deporte, config) {
     return Array.isArray(carreras) ? carreras.map(_normalizarRacing) : [];
   }
 
-  // API-Sports: next=7 trae partidos de los próximos 7 días
-  const res = await axios.get(`${config.url}${config.endpoint}`, {
-    headers: { 'x-apisports-key': config.key },
-    params:  { next: 7 },
-    timeout: 10000,
-  });
-  const fixtures = res.data?.response ?? [];
-  return fixtures.map(f => _normalizarApisports(f, deporte));
+  // Plan gratuito: consultar día por día (next no está disponible)
+  const todasLasFixtures = [];
+  for (let i = 0; i < 7; i++) {
+    const fecha = new Date();
+    fecha.setDate(fecha.getDate() + i);
+    const fechaStr = fecha.toISOString().split('T')[0];
+
+    try {
+      const res = await axios.get(`${config.url}${config.endpoint}`, {
+        headers: { 'x-apisports-key': config.key },
+        params:  { date: fechaStr },
+        timeout: 10000,
+      });
+      const fixtures = res.data?.response ?? [];
+      todasLasFixtures.push(...fixtures);
+    } catch (err) {
+      console.warn(`[deportes] Error fecha ${fechaStr}:`, err.message);
+    }
+  }
+
+  return todasLasFixtures.map(f => _normalizarApisports(f, deporte));
 }
 
 // ── Sincronizar eventos semana ────────────────────────────────────────────────
@@ -149,9 +155,6 @@ async function actualizarResultados() {
     try {
       const config = DEPORTES_CONFIG[evento.deporte];
       if (!config) continue;
-
-      // Carreras de caballos: theracingapi no tiene resultados en tiempo real en el plan free
-      // Se marcan como finalizados manualmente desde el panel admin
       if (config.tipo === 'racing') continue;
 
       const res = await axios.get(`${config.url}${config.endpoint}`, {
