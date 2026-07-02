@@ -1,8 +1,7 @@
-// Archivo: TicketSlip.jsx
+// Nombre de archivo: TicketSlip.jsx
 // Ruta: frontend/src/components/ticket/TicketSlip.jsx
-// Función: panel derecho del Dashboard — ticket parlay en construcción
-//          (selecciones acumuladas, monto, ganancia potencial, botón imprimir).
-//          Extraído de DashboardPage.jsx (Paso 1 de reorganización components/).
+// Función: Panel derecho — ticket parlay en construcción. Muestra selecciones,
+//          calcula ganancia en tiempo real y dispara onImprimir con botón grande.
 
 import { useMemo } from 'react';
 import { X, Trash2, AlertTriangle, Loader2, Printer } from 'lucide-react';
@@ -10,8 +9,14 @@ import { fmtUsd, fmtBs, fmtCuota } from '../../utils/formatters';
 import { MAX_GANANCIA_USD, APUESTA_MINIMA_USD } from '../../utils/constants';
 
 export default function TicketSlip({
-  selecciones, tasaBcv, montoUsd,
-  onCambiarMonto, onRemoverSeleccion, onLimpiar, onImprimir, imprimiendo,
+  selecciones,
+  tasaBcv,
+  montoUsd,
+  onCambiarMonto,
+  onRemoverSeleccion,
+  onLimpiar,
+  onImprimir,
+  imprimiendo,
 }) {
   const cuotaCombinada = useMemo(
     () => selecciones.reduce((acc, s) => acc * Number(s.cuota_aplicada), 1),
@@ -33,16 +38,15 @@ export default function TicketSlip({
     [montoUsd, tasaBcv],
   );
 
-  const limiteAlcanzado  = gananciaPotencialUsd >= MAX_GANANCIA_USD;
-  const montoValido      = montoUsd >= APUESTA_MINIMA_USD;
-  const puedeImprimir    = selecciones.length > 0 && montoValido;
-  const mostrarAlertaLimite = limiteAlcanzado && selecciones.length > 0;
+  const limiteAlcanzado      = gananciaPotencialUsd >= MAX_GANANCIA_USD;
+  const montoValido          = montoUsd >= APUESTA_MINIMA_USD;
+  const puedeImprimir        = selecciones.length > 0 && montoValido;
+  const mostrarAlertaLimite  = limiteAlcanzado && selecciones.length > 0;
 
   function handleMontoChange(e) {
     const raw = e.target.value.replace(/[^0-9.]/g, '');
     const val = parseFloat(raw);
     if (isNaN(val)) { onCambiarMonto(0); return; }
-    // Ajustar monto para no superar $300 de ganancia
     if (cuotaCombinada > 0) {
       const maxMonto = MAX_GANANCIA_USD / cuotaCombinada;
       onCambiarMonto(Math.min(val, maxMonto));
@@ -52,20 +56,22 @@ export default function TicketSlip({
   }
 
   return (
-    <aside className="w-[28%] min-w-[260px] bg-[#1e293b] border-l border-white/5 flex flex-col">
+    <aside className="w-[30%] min-w-[270px] bg-[#1e293b] border-l border-white/5 flex flex-col">
 
-      {/* cabecera slip */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 shrink-0">
+      {/* ── Cabecera ──────────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-4 py-3.5 border-b border-white/5 shrink-0">
         <div>
           <h2 className="text-white text-sm font-bold">Ticket Parlay</h2>
-          <span className="text-[#94a3b8] text-xs">
-            {selecciones.length} selección{selecciones.length !== 1 ? 'es' : ''}
+          <span className="text-[#475569] text-xs">
+            {selecciones.length === 0
+              ? 'Sin selecciones'
+              : `${selecciones.length} selección${selecciones.length !== 1 ? 'es' : ''}`}
           </span>
         </div>
         {selecciones.length > 0 && (
           <button
             onClick={onLimpiar}
-            className="flex items-center gap-1 text-[#94a3b8] hover:text-[#ef4444] text-xs transition"
+            className="flex items-center gap-1 text-[#475569] hover:text-[#ef4444] text-xs transition"
           >
             <Trash2 className="w-3.5 h-3.5" />
             Limpiar
@@ -73,12 +79,12 @@ export default function TicketSlip({
         )}
       </div>
 
-      {/* lista selecciones */}
+      {/* ── Lista de selecciones ──────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
         {selecciones.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 py-10 text-center">
-            <span className="text-3xl">🎫</span>
-            <p className="text-[#475569] text-xs leading-relaxed">
+          <div className="flex flex-col items-center justify-center h-full gap-3 py-12 text-center">
+            <span className="text-4xl opacity-20">🎫</span>
+            <p className="text-[#334155] text-xs leading-relaxed">
               Selecciona una cuota<br />para iniciar tu parlay
             </p>
           </div>
@@ -91,14 +97,14 @@ export default function TicketSlip({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-white text-xs font-semibold truncate">{sel.equipos}</p>
-                  <p className="text-[#94a3b8] text-[11px] mt-0.5 truncate">{sel.modalidad_nombre}</p>
-                  <p className="text-[#94a3b8] text-[11px] truncate">{sel.seleccion}</p>
+                  <p className="text-[#475569] text-[11px] mt-0.5 truncate">{sel.modalidad_nombre}</p>
+                  <p className="text-[#94a3b8] text-[11px]">{sel.seleccion}</p>
                 </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <span className="text-[#10b981] text-sm font-bold">{fmtCuota(sel.cuota_aplicada)}</span>
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <span className="text-[#10b981] text-base font-black">{fmtCuota(sel.cuota_aplicada)}</span>
                   <button
                     onClick={() => onRemoverSeleccion(sel.evento_id)}
-                    className="text-[#475569] hover:text-[#ef4444] transition"
+                    className="text-[#334155] hover:text-[#ef4444] transition"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -108,9 +114,9 @@ export default function TicketSlip({
           ))
         )}
 
-        {/* alerta límite */}
+        {/* Alerta límite */}
         {mostrarAlertaLimite && (
-          <div className="flex items-start gap-2 bg-[#ef4444]/10 border border-[#ef4444]/30 rounded-xl p-3">
+          <div className="flex items-start gap-2 bg-[#ef4444]/8 border border-[#ef4444]/25 rounded-xl p-3">
             <AlertTriangle className="w-4 h-4 text-[#ef4444] shrink-0 mt-0.5" />
             <p className="text-[#ef4444] text-[11px] leading-tight">
               Límite de {fmtUsd(MAX_GANANCIA_USD)} alcanzado. No puedes agregar más eventos.
@@ -119,24 +125,24 @@ export default function TicketSlip({
         )}
       </div>
 
-      {/* panel inferior: monto + cálculo */}
-      <div className="border-t border-white/5 p-3 space-y-3 shrink-0">
+      {/* ── Panel inferior ────────────────────────────────────── */}
+      <div className="border-t border-white/5 p-3.5 space-y-3 shrink-0">
 
-        {/* cuota combinada */}
+        {/* Cuota combinada */}
         {selecciones.length > 0 && (
-          <div className="flex justify-between text-xs">
-            <span className="text-[#94a3b8]">Cuota combinada</span>
-            <span className="text-white font-bold">{fmtCuota(cuotaCombinada)}</span>
+          <div className="flex justify-between items-center">
+            <span className="text-[#475569] text-xs">Cuota combinada</span>
+            <span className="text-white font-black text-sm">{fmtCuota(cuotaCombinada)}×</span>
           </div>
         )}
 
-        {/* monto */}
+        {/* Monto */}
         <div>
-          <label className="text-[#94a3b8] text-[11px] uppercase tracking-wider font-medium block mb-1">
+          <label className="text-[#475569] text-[11px] uppercase tracking-wider font-semibold block mb-1.5">
             Monto a apostar
           </label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8] text-sm font-bold">$</span>
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94a3b8] text-sm font-bold">$</span>
             <input
               type="number"
               min={APUESTA_MINIMA_USD}
@@ -144,11 +150,11 @@ export default function TicketSlip({
               value={montoUsd || ''}
               onChange={handleMontoChange}
               placeholder="0.00"
-              className="w-full bg-[#0f172a] text-white text-right font-bold text-lg border border-white/10 rounded-xl pl-7 pr-4 py-3 focus:outline-none focus:border-[#10b981] focus:ring-1 focus:ring-[#10b981]"
+              className="w-full bg-[#0f172a] text-white text-right font-black text-xl border border-white/10 rounded-xl pl-8 pr-4 py-3.5 focus:outline-none focus:border-[#10b981] focus:ring-1 focus:ring-[#10b981]/40 transition"
             />
           </div>
           {montoEnBs > 0 && (
-            <p className="text-[#475569] text-[11px] mt-1 text-right">
+            <p className="text-[#334155] text-[11px] mt-1.5 text-right">
               ≈ {fmtBs(montoEnBs)}
             </p>
           )}
@@ -159,13 +165,19 @@ export default function TicketSlip({
           )}
         </div>
 
-        {/* ganancia potencial */}
+        {/* Ganancia potencial */}
         {selecciones.length > 0 && montoValido && (
-          <div className="bg-[#0f172a] rounded-xl p-3 border border-[#10b981]/20">
-            <p className="text-[#94a3b8] text-[11px] uppercase tracking-wider font-medium mb-1">
+          <div className={`rounded-xl p-3.5 border transition-all
+            ${limiteAlcanzado
+              ? 'bg-[#ef4444]/8 border-[#ef4444]/25'
+              : 'bg-[#10b981]/8 border-[#10b981]/20'}`}
+          >
+            <p className="text-[#475569] text-[11px] uppercase tracking-wider font-semibold mb-1">
               Ganancia potencial
             </p>
-            <p className={`text-2xl font-bold ${limiteAlcanzado ? 'text-[#ef4444]' : 'text-[#10b981]'}`}>
+            <p className={`text-3xl font-black tracking-tight
+              ${limiteAlcanzado ? 'text-[#ef4444]' : 'text-[#10b981]'}`}
+            >
               {fmtUsd(Math.min(gananciaPotencialUsd, MAX_GANANCIA_USD))}
             </p>
             {gananciaPotencialBs > 0 && (
@@ -176,24 +188,26 @@ export default function TicketSlip({
           </div>
         )}
 
-        {/* botón guardar e imprimir */}
+        {/* Botón principal */}
         <button
           onClick={onImprimir}
           disabled={!puedeImprimir || imprimiendo}
-          className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-sm transition
+          className={`
+            w-full flex items-center justify-center gap-2.5
+            py-4 rounded-xl font-black text-base transition-all duration-150
             ${puedeImprimir && !imprimiendo
-              ? 'bg-[#10b981] hover:bg-[#059669] active:bg-[#047857] text-white'
-              : 'bg-[#1e293b] border border-white/10 text-[#334155] cursor-not-allowed'}`}
+              ? 'bg-[#10b981] hover:bg-[#059669] active:scale-[0.98] text-white shadow-[0_4px_20px_rgba(16,185,129,0.30)]'
+              : 'bg-[#0f172a] border border-white/8 text-[#2d3748] cursor-not-allowed'}
+          `}
         >
           {imprimiendo
-            ? <><Loader2 className="w-4 h-4 animate-spin" />Procesando…</>
-            : <><Printer className="w-4 h-4" />Guardar e Imprimir</>}
+            ? <><Loader2 className="w-5 h-5 animate-spin" />Procesando…</>
+            : <><Printer className="w-5 h-5" />Guardar e Imprimir</>}
         </button>
 
-        {/* apuesta mínima recordatorio */}
         {selecciones.length > 0 && !montoValido && (
-          <p className="text-[#475569] text-[11px] text-center">
-            Ingresa un monto de mínimo {fmtUsd(APUESTA_MINIMA_USD)}
+          <p className="text-[#334155] text-[11px] text-center">
+            Mínimo {fmtUsd(APUESTA_MINIMA_USD)} para continuar
           </p>
         )}
       </div>
