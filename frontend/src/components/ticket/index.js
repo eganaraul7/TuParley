@@ -9,3 +9,5 @@ export { default as TicketSlip }          from './TicketSlip';
 export { default as ModalTicket }         from './ModalTicket';
 export { default as ModalDetalleTicket }  from './ModalDetalleTicket';
 export { default as SolicitudAnulacion }  from './SolicitudAnulacion';
+export { default as ModalImpresion }      from './ModalImpresion';
+export { default as ModalQR }             from './ModalQR';

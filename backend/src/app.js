@@ -1,20 +1,20 @@
 'use strict';
 
-const express  = require('express');
-const cors     = require('cors');
-const helmet   = require('helmet');
-const morgan   = require('morgan');
+const express     = require('express');
+const cors        = require('cors');
+const helmet      = require('helmet');
+const morgan      = require('morgan');
 const compression = require('compression');
 
-const authRoutes       = require('./routes/auth.routes');
-const usuarioRoutes    = require('./routes/usuario.routes');
-const ticketRoutes     = require('./routes/ticket.routes');
-const eventoRoutes     = require('./routes/evento.routes');
-const cierreCajaRoutes = require('./routes/cierreCaja.routes');
-const pagoRoutes       = require('./routes/pago.routes');
-const reporteRoutes    = require('./routes/reporte.routes');
+const authRoutes         = require('./routes/auth.routes');
+const usuarioRoutes      = require('./routes/usuario.routes');
+const ticketRoutes       = require('./routes/ticket.routes');
+const eventoRoutes       = require('./routes/evento.routes');
+const cierreCajaRoutes   = require('./routes/cierreCaja.routes');
+const pagoRoutes         = require('./routes/pago.routes');
+const reporteRoutes      = require('./routes/reporte.routes');
 const notificacionRoutes = require('./routes/notificacion.routes');
-
+const bodegaRoutes       = require('./routes/bodega.routes');
 
 const app = express();
 
@@ -47,12 +47,13 @@ app.use('/api/cierre-caja',   cierreCajaRoutes);
 app.use('/api/pagos',         pagoRoutes);
 app.use('/api/reportes',      reporteRoutes);
 app.use('/api/notificaciones',notificacionRoutes);
+app.use('/api/bodegas',       bodegaRoutes);
 
 // ─── BCV manual (admin) ───────────────────────────────────────────────────────
-const { verificarToken }  = require('./middlewares/auth.middleware');
-const { soloAdmin }       = require('./middlewares/rol.middleware');
-const bcvService          = require('./services/bcv.service');
-const { query }           = require('./config/db');
+const { verificarToken } = require('./middlewares/auth.middleware');
+const { soloAdmin }      = require('./middlewares/rol.middleware');
+const bcvService         = require('./services/bcv.service');
+const { query }          = require('./config/db');
 
 app.get('/api/bcv/actual', verificarToken, async (req, res) => {
   const tasa = await bcvService.obtenerTasaActual();
@@ -98,7 +99,7 @@ app.post('/api/admin/mantenimiento', verificarToken, soloAdmin, async (req, res)
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: new Date().toISOString() }));
 
 // ─── Frontend (build de producción) ──────────────────────────────────────────
-const path        = require('path');
+const path         = require('path');
 const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
 app.use(express.static(frontendDist));
 app.get(/^(?!\/api).*/, (req, res, next) => {

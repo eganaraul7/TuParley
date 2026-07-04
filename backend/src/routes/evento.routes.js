@@ -8,18 +8,26 @@ const { limiterApi }                                = require('../middlewares/ra
 router.use(verificarToken, noDesconocido, limiterApi);
 
 // ── Estáticas ANTES de /:id ──────────────────────────────────────────────────
-router.get ('/marcadores-en-vivo',            bodegueroOAdmin, ctrl.marcadoresEnVivo);
-router.get ('/categorias/lista',              bodegueroOAdmin, ctrl.listarCategorias);
+router.get  ('/marcadores-en-vivo',           bodegueroOAdmin, ctrl.marcadoresEnVivo);
+
+// Categorías
+router.get  ('/categorias/lista',             bodegueroOAdmin, ctrl.listarCategorias);
 router.patch('/categorias/:deporte/toggle',   soloAdmin,       ctrl.toggleCategoria);
-router.get ('/modalidades/lista',             bodegueroOAdmin, ctrl.listarModalidades);
+
+// Torneos
+router.get  ('/torneos/lista',                bodegueroOAdmin, ctrl.listarTorneos);
+router.patch('/torneos/:id/toggle',           soloAdmin,       ctrl.toggleTorneo);
+
+// Modalidades
+router.get  ('/modalidades/lista',            bodegueroOAdmin, ctrl.listarModalidades);
 router.patch('/modalidades/:id/toggle',       soloAdmin,       ctrl.toggleModalidad);
 router.patch('/modalidades/:id/cuota',        soloAdmin,       ctrl.actualizarCuotaModalidad);
 
 // ── CRUD eventos ─────────────────────────────────────────────────────────────
-router.get ('/',        bodegueroOAdmin, ctrl.listarEventos);
-router.post('/',        soloAdmin,       ctrl.crearEvento);
-router.get ('/:id',     bodegueroOAdmin, ctrl.obtenerEvento);
-router.put ('/:id',     soloAdmin,       ctrl.actualizarEvento);
-router.patch('/:id/toggle', soloAdmin,   ctrl.toggleEvento);
+router.get  ('/',            bodegueroOAdmin, ctrl.listarEventos);
+router.post ('/',            soloAdmin,       ctrl.crearEvento);
+router.get  ('/:id',         bodegueroOAdmin, ctrl.obtenerEvento);
+router.put  ('/:id',         soloAdmin,       ctrl.actualizarEvento);
+router.patch('/:id/toggle',  soloAdmin,       ctrl.toggleEvento);
 
 module.exports = router;

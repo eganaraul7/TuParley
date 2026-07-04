@@ -20,33 +20,42 @@ function _ip(req) {
 const DEPORTES_VALIDOS = ['futbol', 'baloncesto', 'beisbol', 'caballos', 'tenis'];
 
 // ─── GET /api/eventos ─────────────────────────────────────────────────────────
-// Retorna eventos de la semana actual, filtrables
 
 async function listarEventos(req, res) {
   const { deporte, liga, equipo, fecha, estado } = req.query;
 
   try {
-    // Rango máximo: 7 días desde hoy
-    const hoy          = new Date();
-    const en7Dias      = new Date(hoy.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const fechaDesde   = hoy.toISOString().slice(0, 19).replace('T', ' ');
-    const fechaHasta   = en7Dias.toISOString().slice(0, 19).replace('T', ' ');
+    const hoy        = new Date();
+    const en7Dias    = new Date(hoy.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const fechaDesde = hoy.toISOString().slice(0, 19).replace('T', ' ');
+    const fechaHasta = en7Dias.toISOString().slice(0, 19).replace('T', ' ');
 
-    let sql = `SELECT e.id, e.api_evento_id, e.deporte, e.liga,
-                      e.equipo_local, e.equipo_visitante, e.fecha_inicio,
-                      e.estado, e.activo,
-                      cc.activa AS categoria_activa
-                  FROM eventos e
-                  JOIN categorias_config cc ON cc.deporte = e.deporte
-                WHERE e.fecha_inicio BETWEEN ? AND ?`;
+    // LEFT JOIN con torneos_config para respetar activo/inactivo por torneo.
+    // COALESCE(tc.activo, 1): si el torneo aún no está registrado → se muestra.
+    let sql = `
+      SELECT e.id, e.api_evento_id, e.deporte, e.liga,
+             e.equipo_local, e.equipo_visitante, e.fecha_inicio,
+             e.estado, e.activo,
+             cc.activa  AS categoria_activa,
+             COALESCE(tc.activo, 1) AS torneo_activo
+        FROM eventos e
+        JOIN categorias_config cc ON cc.deporte = e.deporte
+        LEFT JOIN torneos_config tc
+               ON tc.deporte = e.deporte AND tc.nombre_liga = e.liga
+       WHERE e.fecha_inicio BETWEEN ? AND ?`;
     const params = [fechaDesde, fechaHasta];
 
-    if (deporte) { sql += ' AND e.deporte = ?';                              params.push(deporte); }
-    if (liga)    { sql += ' AND e.liga LIKE ?';                              params.push(`%${liga}%`); }
-    if (equipo)  { sql += ' AND (e.equipo_local LIKE ? OR e.equipo_visitante LIKE ?)'; params.push(`%${equipo}%`, `%${equipo}%`); }
-    if (fecha)   { sql += ' AND DATE(e.fecha_inicio) = ?';                   params.push(fecha); }
-    if (estado)  { sql += ' AND e.estado = ?';                               params.push(estado); }
-    else         { sql += " AND e.estado = 'programado' AND e.activo = 1 AND cc.activa = 1"; }
+    if (deporte) { sql += ' AND e.deporte = ?';                                              params.push(deporte); }
+    if (liga)    { sql += ' AND e.liga LIKE ?';                                              params.push(`%${liga}%`); }
+    if (equipo)  { sql += ' AND (e.equipo_local LIKE ? OR e.equipo_visitante LIKE ?)';       params.push(`%${equipo}%`, `%${equipo}%`); }
+    if (fecha)   { sql += ' AND DATE(e.fecha_inicio) = ?';                                   params.push(fecha); }
+    if (estado)  { sql += ' AND e.estado = ?';                                               params.push(estado); }
+    else {
+      sql += ` AND e.estado = 'programado'
+               AND e.activo = 1
+               AND cc.activa = 1
+               AND COALESCE(tc.activo, 1) = 1`;
+    }
 
     sql += ' ORDER BY e.fecha_inicio ASC';
 
@@ -88,7 +97,6 @@ async function obtenerEvento(req, res) {
 }
 
 // ─── POST /api/eventos ────────────────────────────────────────────────────────
-// Admin crea evento manual
 
 async function crearEvento(req, res) {
   const { deporte, liga, equipo_local, equipo_visitante, fecha_inicio, api_evento_id } = req.body;
@@ -106,6 +114,12 @@ async function crearEvento(req, res) {
       `INSERT INTO eventos (api_evento_id, deporte, liga, equipo_local, equipo_visitante, fecha_inicio, estado, activo)
        VALUES (?,?,?,?,?,?,'programado',1)`,
       [api_evento_id ?? null, deporte, liga, equipo_local, equipo_visitante, fecha_inicio]
+    );
+
+    // Auto-registrar el torneo si no existe
+    await query(
+      `INSERT IGNORE INTO torneos_config (deporte, nombre_liga, activo) VALUES (?, ?, 1)`,
+      [deporte, liga]
     );
 
     await _log(req.usuario.id, 'crear_evento', 'eventos', result.insertId,
@@ -126,7 +140,7 @@ async function actualizarEvento(req, res) {
   const ip = _ip(req);
 
   try {
-    const rows = await query(`SELECT id FROM eventos WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(`SELECT id, deporte FROM eventos WHERE id = ? LIMIT 1`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Evento no encontrado' });
 
     const campos = []; const params = [];
@@ -147,6 +161,15 @@ async function actualizarEvento(req, res) {
 
     params.push(id);
     await query(`UPDATE eventos SET ${campos.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
+
+    // Si se cambia la liga, registrar el nuevo torneo
+    if (liga) {
+      await query(
+        `INSERT IGNORE INTO torneos_config (deporte, nombre_liga, activo) VALUES (?, ?, 1)`,
+        [rows[0].deporte, liga]
+      );
+    }
+
     await _log(req.usuario.id, 'actualizar_evento', 'eventos', Number(id), req.body, ip);
 
     return res.status(200).json({ mensaje: 'Evento actualizado' });
@@ -173,6 +196,73 @@ async function toggleEvento(req, res) {
     return res.status(200).json({ mensaje: `Evento ${nuevoActivo ? 'activado' : 'desactivado'}`, activo: nuevoActivo });
   } catch (err) {
     console.error('[evento.controller] toggleEvento:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+// ─── GET /api/eventos/torneos/lista ──────────────────────────────────────────
+
+async function listarTorneos(req, res) {
+  const { deporte } = req.query;
+  try {
+    let sql = `
+      SELECT tc.id, tc.deporte, tc.nombre_liga, tc.activo,
+             tc.created_at, tc.updated_at,
+             u.nombre_usuario AS actualizado_por_nombre,
+             COUNT(e.id)      AS eventos_disponibles
+        FROM torneos_config tc
+        LEFT JOIN usuarios u ON u.id = tc.actualizado_por
+        LEFT JOIN eventos e
+               ON e.deporte = tc.deporte
+              AND e.liga     = tc.nombre_liga
+              AND e.estado   = 'programado'
+              AND e.activo   = 1
+              AND e.fecha_inicio >= NOW()
+       WHERE 1=1`;
+    const params = [];
+    if (deporte) { sql += ' AND tc.deporte = ?'; params.push(deporte); }
+    sql += ' GROUP BY tc.id, tc.deporte, tc.nombre_liga, tc.activo, tc.created_at, tc.updated_at, u.nombre_usuario';
+    sql += ' ORDER BY tc.deporte ASC, tc.nombre_liga ASC';
+
+    const torneos = await query(sql, params);
+    return res.status(200).json({ torneos });
+  } catch (err) {
+    console.error('[evento.controller] listarTorneos:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+// ─── PATCH /api/eventos/torneos/:id/toggle ────────────────────────────────────
+
+async function toggleTorneo(req, res) {
+  const { id } = req.params;
+  const ip = _ip(req);
+  try {
+    const rows = await query(
+      `SELECT id, activo, deporte, nombre_liga FROM torneos_config WHERE id = ? LIMIT 1`, [id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Torneo no encontrado' });
+
+    const nuevoActivo = rows[0].activo ? 0 : 1;
+    await query(
+      `UPDATE torneos_config SET activo = ?, actualizado_por = ?, updated_at = NOW() WHERE id = ?`,
+      [nuevoActivo, req.usuario.id, id]
+    );
+    await _log(
+      req.usuario.id,
+      nuevoActivo ? 'activar_torneo' : 'desactivar_torneo',
+      'torneos_config',
+      Number(id),
+      { deporte: rows[0].deporte, liga: rows[0].nombre_liga },
+      ip
+    );
+
+    return res.status(200).json({
+      mensaje: `Torneo ${nuevoActivo ? 'activado' : 'desactivado'}`,
+      activo:  nuevoActivo,
+    });
+  } catch (err) {
+    console.error('[evento.controller] toggleTorneo:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 }
@@ -324,6 +414,8 @@ module.exports = {
   crearEvento,
   actualizarEvento,
   toggleEvento,
+  listarTorneos,
+  toggleTorneo,
   listarCategorias,
   toggleCategoria,
   listarModalidades,

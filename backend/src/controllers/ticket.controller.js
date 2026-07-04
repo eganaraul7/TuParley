@@ -1,7 +1,7 @@
 'use strict';
 
-const { query, getConnection }    = require('../config/db');
-const { getCache, KEYS }          = require('../config/redis');
+const { query, getConnection }               = require('../config/db');
+const { getCache, KEYS }                     = require('../config/redis');
 const { generarHashTicket, verificarHashTicket } = require('../services/hash.service');
 
 async function _log(usuarioId, accion, entidad_afectada, entidad_id, detalle, ip) {
@@ -47,10 +47,11 @@ function _calcularGanancia(montoUsd, cuotaCombinada) {
 const MAX_GANANCIA_USD = 300;
 const APUESTA_MINIMA   = 1;
 
+// ─── POST /api/tickets ────────────────────────────────────────────────────────
+
 async function crearTicket(req, res) {
   const { id: usuarioId, bodega_id, bodega_prefijo } = req.usuario;
   const ip = _ip(req);
-
   const { selecciones, monto_apostado_usd, moneda_pago, origen = 'online', hash_cliente } = req.body;
 
   if (!selecciones || !Array.isArray(selecciones) || selecciones.length === 0) {
@@ -88,35 +89,34 @@ async function crearTicket(req, res) {
         return res.status(400).json({ error: 'Cada selección necesita evento_id, modalidad_id y seleccion' });
       }
 
-      const [evento] = (await conn.query(
-        `SELECT id, deporte, estado, activo, liga, equipo_local, equipo_visitante
-            FROM eventos WHERE id = ? LIMIT 1`, [evento_id]
-      ))[0];
-
+      const [eventoRows] = await conn.query(
+        `SELECT id, deporte, estado, activo FROM eventos WHERE id = ? LIMIT 1`, [evento_id]
+      );
+      const evento = eventoRows[0];
       if (!evento) {
         await conn.rollback(); conn.release();
         return res.status(404).json({ error: `Evento ${evento_id} no encontrado` });
       }
       if (evento.estado !== 'programado' || !evento.activo) {
         await conn.rollback(); conn.release();
-        return res.status(409).json({ error: `Evento ${evento_id} no está disponible para apuestas` });
+        return res.status(409).json({ error: `Evento ${evento_id} no disponible para apuestas` });
       }
 
-      const [catConfig] = (await conn.query(
+      const [catRows] = await conn.query(
         `SELECT activa FROM categorias_config WHERE deporte = ? LIMIT 1`, [evento.deporte]
-      ))[0];
-      if (!catConfig || !catConfig.activa) {
+      );
+      if (!catRows[0] || !catRows[0].activa) {
         await conn.rollback(); conn.release();
         return res.status(409).json({ error: `Categoría ${evento.deporte} está desactivada` });
       }
 
-      const [modalidad] = (await conn.query(
-        `SELECT id, cuota_base, nombre, activa, deporte
-            FROM modalidades WHERE id = ? LIMIT 1`, [modalidad_id]
-      ))[0];
+      const [modRows] = await conn.query(
+        `SELECT id, cuota_base, activa, deporte FROM modalidades WHERE id = ? LIMIT 1`, [modalidad_id]
+      );
+      const modalidad = modRows[0];
       if (!modalidad || !modalidad.activa) {
         await conn.rollback(); conn.release();
-        return res.status(404).json({ error: `Modalidad ${modalidad_id} no encontrada o desactivada` });
+        return res.status(404).json({ error: `Modalidad ${modalidad_id} no disponible` });
       }
       if (modalidad.deporte !== evento.deporte) {
         await conn.rollback(); conn.release();
@@ -127,13 +127,12 @@ async function crearTicket(req, res) {
       seleccionesValidas.push({ evento_id, modalidad_id, seleccion, cuota_aplicada: parseFloat(modalidad.cuota_base) });
     }
 
-    let gananciaPotencialUsd = _calcularGanancia(montoUsd, cuotaCombinada);
-
+    const gananciaPotencialUsd = _calcularGanancia(montoUsd, cuotaCombinada);
     if (gananciaPotencialUsd > MAX_GANANCIA_USD) {
       const montoAjustado = Math.floor((MAX_GANANCIA_USD / cuotaCombinada) * 100) / 100;
       await conn.rollback(); conn.release();
       return res.status(400).json({
-        error: `La ganancia potencial excede $${MAX_GANANCIA_USD}. Monto máximo permitido: $${montoAjustado}`,
+        error: `Ganancia excede $${MAX_GANANCIA_USD}. Monto máximo: $${montoAjustado}`,
         monto_maximo: montoAjustado,
         cuota_combinada: cuotaCombinada,
       });
@@ -144,13 +143,13 @@ async function crearTicket(req, res) {
 
     let numeroSerie;
     let serieUnica = false;
-    let intentos = 0;
+    let intentos   = 0;
     while (!serieUnica && intentos < 10) {
       numeroSerie = _generarNumeroSerie(bodega_prefijo);
-      const [exist] = (await conn.query(
+      const [exist] = await conn.query(
         `SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [numeroSerie]
-      ))[0];
-      if (!exist) serieUnica = true;
+      );
+      if (!exist[0]) serieUnica = true;
       intentos++;
     }
     if (!serieUnica) {
@@ -170,12 +169,12 @@ async function crearTicket(req, res) {
           (numero_serie, bodega_id, usuario_id, monto_apostado_usd, monto_apostado_bs,
           tasa_bcv_dia, cuota_combinada, ganancia_potencial_usd, ganancia_potencial_bs,
           estado, moneda_pago, origen, sincronizado, hash_sha256, fecha_creacion)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,?,?,?,?)`,
       [
         numeroSerie, bodega_id, usuarioId,
         montoUsd, montoApostadoBs, tasa,
         cuotaCombinada, gananciaPotencialUsd, gananciaPotencialBs,
-        'PENDIENTE', moneda_pago, origen,
+        moneda_pago, origen,
         origen === 'online' ? 1 : 0,
         hashSha256, ahora,
       ]
@@ -185,8 +184,8 @@ async function crearTicket(req, res) {
     for (const sel of seleccionesValidas) {
       await conn.query(
         `INSERT INTO selecciones_ticket (ticket_id, evento_id, modalidad_id, cuota_aplicada, seleccion, resultado)
-          VALUES (?,?,?,?,?,?)`,
-        [ticketId, sel.evento_id, sel.modalidad_id, sel.cuota_aplicada, sel.seleccion, 'pendiente']
+          VALUES (?,?,?,?,?,'pendiente')`,
+        [ticketId, sel.evento_id, sel.modalidad_id, sel.cuota_aplicada, sel.seleccion]
       );
     }
 
@@ -200,26 +199,17 @@ async function crearTicket(req, res) {
         'ambos', ticketId, 'tickets'
       );
     }
-
     await _log(usuarioId, 'crear_ticket', 'tickets', ticketId,
       { numeroSerie, montoUsd, cuotaCombinada, gananciaPotencialUsd, origen }, ip);
 
     return res.status(201).json({
       ticket: {
-        id:                    ticketId,
-        numero_serie:          numeroSerie,
-        monto_apostado_usd:    montoUsd,
-        monto_apostado_bs:     montoApostadoBs,
-        tasa_bcv_dia:          tasa,
-        cuota_combinada:       cuotaCombinada,
-        ganancia_potencial_usd: gananciaPotencialUsd,
-        ganancia_potencial_bs:  gananciaPotencialBs,
-        estado:                'PENDIENTE',
-        moneda_pago,
-        origen,
-        hash_sha256:           hashSha256,
-        fecha_creacion:        ahora,
-        selecciones:           seleccionesValidas,
+        id: ticketId, numero_serie: numeroSerie,
+        monto_apostado_usd: montoUsd, monto_apostado_bs: montoApostadoBs,
+        tasa_bcv_dia: tasa, cuota_combinada: cuotaCombinada,
+        ganancia_potencial_usd: gananciaPotencialUsd, ganancia_potencial_bs: gananciaPotencialBs,
+        estado: 'PENDIENTE', moneda_pago, origen, hash_sha256: hashSha256,
+        fecha_creacion: ahora, selecciones: seleccionesValidas,
       }
     });
 
@@ -230,6 +220,8 @@ async function crearTicket(req, res) {
   }
 }
 
+// ─── POST /api/tickets/sync-offline ──────────────────────────────────────────
+
 async function sincronizarOffline(req, res) {
   const { cola } = req.body;
   if (!Array.isArray(cola) || cola.length === 0) {
@@ -239,29 +231,25 @@ async function sincronizarOffline(req, res) {
   const resultados = [];
   for (const ticketOffline of cola) {
     const { hash_sha256, numero_serie, bodega_id, usuario_id, monto_apostado_usd,
-            cuota_combinada, selecciones, ts, moneda_pago } = ticketOffline;
+            cuota_combinada, selecciones, ts, moneda_pago, modo_impresion } = ticketOffline;
 
     const hashValido = verificarHashTicket(
       { numero_serie, bodega_id, usuario_id, monto_apostado_usd, cuota_combinada, selecciones, ts },
       hash_sha256,
     );
-
     if (!hashValido) {
-      resultados.push({ numero_serie, estado: 'rechazado', motivo: 'Hash inválido — ticket modificado' });
+      resultados.push({ numero_serie, estado: 'rechazado', motivo: 'Hash inválido' });
       await _log(req.usuario.id, 'sync_offline_rechazado', 'tickets', null,
         { numero_serie, motivo: 'hash_invalido' }, _ip(req));
       continue;
     }
 
     const existe = await query(`SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [numero_serie]);
-    if (existe.length > 0) {
-      resultados.push({ numero_serie, estado: 'ya_existe' });
-      continue;
-    }
+    if (existe.length > 0) { resultados.push({ numero_serie, estado: 'ya_existe' }); continue; }
 
     try {
       const tasa = await _obtenerTasaBcv();
-      const montoUsd = parseFloat(monto_apostado_usd);
+      const montoUsd             = parseFloat(monto_apostado_usd);
       const gananciaPotencialUsd = _calcularGanancia(montoUsd, parseFloat(cuota_combinada));
       const montoApostadoBs      = Math.round(montoUsd * tasa * 100) / 100;
       const gananciaPotencialBs  = Math.round(gananciaPotencialUsd * tasa * 100) / 100;
@@ -270,12 +258,11 @@ async function sincronizarOffline(req, res) {
         `INSERT INTO tickets
             (numero_serie, bodega_id, usuario_id, monto_apostado_usd, monto_apostado_bs,
             tasa_bcv_dia, cuota_combinada, ganancia_potencial_usd, ganancia_potencial_bs,
-            estado, moneda_pago, origen, sincronizado, hash_sha256, fecha_creacion)
-          VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,?,1,?,?)`,
-        [numero_serie, bodega_id, usuario_id,
-          montoUsd, montoApostadoBs, tasa,
+            estado, moneda_pago, modo_impresion, origen, sincronizado, hash_sha256, fecha_creacion)
+          VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,?,?,1,?,?)`,
+        [numero_serie, bodega_id, usuario_id, montoUsd, montoApostadoBs, tasa,
           cuota_combinada, gananciaPotencialUsd, gananciaPotencialBs,
-          moneda_pago, 'offline', hash_sha256, new Date(ts)]
+          moneda_pago, modo_impresion ?? null, 'offline', hash_sha256, new Date(ts)]
       );
       const ticketId = result.insertId;
 
@@ -297,6 +284,8 @@ async function sincronizarOffline(req, res) {
   return res.status(200).json({ resultados });
 }
 
+// ─── GET /api/tickets ─────────────────────────────────────────────────────────
+
 async function listarTickets(req, res) {
   const { rol, bodega_id } = req.usuario;
   const { estado, fecha_desde, fecha_hasta, page = 1, limit = 50 } = req.query;
@@ -306,7 +295,7 @@ async function listarTickets(req, res) {
     let sql = `SELECT t.id, t.numero_serie, t.bodega_id, t.usuario_id,
                       t.monto_apostado_usd, t.monto_apostado_bs, t.tasa_bcv_dia,
                       t.cuota_combinada, t.ganancia_potencial_usd, t.ganancia_potencial_bs,
-                      t.estado, t.moneda_pago, t.origen, t.fecha_creacion,
+                      t.estado, t.modo_impresion, t.moneda_pago, t.origen, t.fecha_creacion,
                       t.fecha_estado_ganado, t.fecha_vencimiento_cobro,
                       b.nombre AS bodega_nombre, u.nombre_usuario
                   FROM tickets t
@@ -316,10 +305,9 @@ async function listarTickets(req, res) {
     const params = [];
 
     if (rol === 'bodeguero') { sql += ' AND t.bodega_id = ?'; params.push(bodega_id); }
-
-    if (estado)       { sql += ' AND t.estado = ?';                    params.push(estado); }
-    if (fecha_desde)  { sql += ' AND DATE(t.fecha_creacion) >= ?';     params.push(fecha_desde); }
-    if (fecha_hasta)  { sql += ' AND DATE(t.fecha_creacion) <= ?';     params.push(fecha_hasta); }
+    if (estado)      { sql += ' AND t.estado = ?';                params.push(estado); }
+    if (fecha_desde) { sql += ' AND DATE(t.fecha_creacion) >= ?'; params.push(fecha_desde); }
+    if (fecha_hasta) { sql += ' AND DATE(t.fecha_creacion) <= ?'; params.push(fecha_hasta); }
 
     sql += ' ORDER BY t.fecha_creacion DESC LIMIT ? OFFSET ?';
     params.push(parseInt(limit), offset);
@@ -332,8 +320,10 @@ async function listarTickets(req, res) {
   }
 }
 
+// ─── GET /api/tickets/buscar ──────────────────────────────────────────────────
+
 async function buscarTicketPorSerie(req, res) {
-  const { serie } = req.query;
+  const { serie }          = req.query;
   const { rol, bodega_id } = req.usuario;
   if (!serie) return res.status(400).json({ error: 'Parámetro serie requerido' });
 
@@ -363,7 +353,6 @@ async function buscarTicketPorSerie(req, res) {
         WHERE st.ticket_id = ?`,
       [ticket.id]
     );
-
     return res.status(200).json({ ticket, selecciones });
   } catch (err) {
     console.error('[ticket.controller] buscarTicketPorSerie:', err);
@@ -371,8 +360,10 @@ async function buscarTicketPorSerie(req, res) {
   }
 }
 
+// ─── GET /api/tickets/:id ─────────────────────────────────────────────────────
+
 async function obtenerTicket(req, res) {
-  const { id } = req.params;
+  const { id }             = req.params;
   const { rol, bodega_id } = req.usuario;
 
   try {
@@ -401,7 +392,6 @@ async function obtenerTicket(req, res) {
         WHERE st.ticket_id = ?`,
       [ticket.id]
     );
-
     return res.status(200).json({ ticket, selecciones });
   } catch (err) {
     console.error('[ticket.controller] obtenerTicket:', err);
@@ -409,16 +399,127 @@ async function obtenerTicket(req, res) {
   }
 }
 
+// ─── GET /api/tickets/qr/:serie ───────────────────────────────────────────────
+
+async function consultarQR(req, res) {
+  const { serie }                         = req.params;
+  const { rol, bodega_id: bodegaUsuario } = req.usuario;
+  if (!serie) return res.status(400).json({ error: 'Número de serie requerido' });
+
+  try {
+    const rows = await query(
+      `SELECT t.id, t.numero_serie, t.estado, t.modo_impresion,
+              t.monto_apostado_usd, t.monto_apostado_bs,
+              t.ganancia_potencial_usd, t.ganancia_potencial_bs,
+              t.tasa_bcv_dia, t.cuota_combinada, t.moneda_pago,
+              t.fecha_creacion, t.fecha_vencimiento_cobro,
+              t.hash_sha256, t.bodega_id,
+              b.nombre AS bodega_nombre
+         FROM tickets t
+         JOIN bodegas b ON b.id = t.bodega_id
+        WHERE t.numero_serie = ? LIMIT 1`,
+      [serie]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+
+    const ticket = rows[0];
+    if (rol === 'bodeguero' && Number(ticket.bodega_id) !== Number(bodegaUsuario)) {
+      return res.status(403).json({ error: 'Este ticket no pertenece a tu bodega' });
+    }
+
+    const selecciones = await query(
+      `SELECT e.equipo_local, e.equipo_visitante, e.liga, e.deporte,
+              e.fecha_inicio, e.resultado_final,
+              st.seleccion, st.cuota_aplicada, st.resultado,
+              m.nombre AS modalidad_nombre
+         FROM selecciones_ticket st
+         JOIN eventos     e ON e.id = st.evento_id
+         JOIN modalidades m ON m.id = st.modalidad_id
+        WHERE st.ticket_id = ? ORDER BY st.id ASC`,
+      [ticket.id]
+    );
+
+    const hash_valido = typeof ticket.hash_sha256 === 'string' && ticket.hash_sha256.length === 64;
+
+    return res.status(200).json({
+      serie:                   ticket.numero_serie,
+      estado:                  ticket.estado,
+      modo_impresion:          ticket.modo_impresion,
+      moneda_pago:             ticket.moneda_pago,
+      monto_apostado_usd:      Number(ticket.monto_apostado_usd),
+      monto_apostado_bs:       Number(ticket.monto_apostado_bs),
+      ganancia_potencial_usd:  Number(ticket.ganancia_potencial_usd),
+      ganancia_potencial_bs:   Number(ticket.ganancia_potencial_bs),
+      tasa_bcv_dia:            Number(ticket.tasa_bcv_dia),
+      cuota_combinada:         Number(ticket.cuota_combinada),
+      fecha_creacion:          ticket.fecha_creacion,
+      fecha_vencimiento_cobro: ticket.fecha_vencimiento_cobro,
+      bodega_nombre:           ticket.bodega_nombre,
+      hash_valido,
+      selecciones: selecciones.map((s) => ({
+        equipos:         `${s.equipo_local} vs ${s.equipo_visitante}`,
+        deporte:         s.deporte,
+        liga:            s.liga,
+        modalidad:       s.modalidad_nombre,
+        seleccion:       s.seleccion,
+        cuota:           Number(s.cuota_aplicada),
+        resultado:       s.resultado,
+        resultado_final: s.resultado_final ?? null,
+      })),
+    });
+  } catch (err) {
+    console.error('[ticket.controller] consultarQR:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+// ─── PATCH /api/tickets/:id/modo-impresion ────────────────────────────────────
+
+async function actualizarModoImpresion(req, res) {
+  const { id }             = req.params;
+  const { modo_impresion } = req.body;
+  const { rol, bodega_id } = req.usuario;
+
+  if (!['fisica', 'digital'].includes(modo_impresion)) {
+    return res.status(400).json({ error: "modo_impresion debe ser 'fisica' o 'digital'" });
+  }
+
+  try {
+    const rows = await query(
+      `SELECT id, bodega_id FROM tickets WHERE id = ? LIMIT 1`, [id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+
+    if (rol === 'bodeguero' && rows[0].bodega_id !== bodega_id) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+
+    await query(
+      `UPDATE tickets SET modo_impresion = ?, updated_at = NOW() WHERE id = ?`,
+      [modo_impresion, id]
+    );
+
+    return res.status(200).json({ mensaje: 'Modo de impresión registrado' });
+  } catch (err) {
+    console.error('[ticket.controller] actualizarModoImpresion:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+// ─── POST /api/tickets/:id/solicitar-anulacion ────────────────────────────────
+
 async function solicitarAnulacion(req, res) {
-  const { id } = req.params;
-  const { motivo } = req.body;
+  const { id }                          = req.params;
+  const { motivo }                      = req.body;
   const { id: usuarioId, bodega_id, rol } = req.usuario;
   const ip = _ip(req);
 
   if (!motivo) return res.status(400).json({ error: 'motivo es requerido' });
 
   try {
-    const rows = await query(`SELECT id, bodega_id, estado, numero_serie FROM tickets WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(
+      `SELECT id, bodega_id, estado, numero_serie FROM tickets WHERE id = ? LIMIT 1`, [id]
+    );
     if (rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
 
     const ticket = rows[0];
@@ -433,28 +534,28 @@ async function solicitarAnulacion(req, res) {
       `SELECT id FROM solicitudes_anulacion WHERE ticket_id = ? AND estado = 'pendiente' LIMIT 1`, [id]
     );
     if (solExist.length > 0) {
-      return res.status(409).json({ error: 'Ya existe una solicitud de anulación pendiente para este ticket' });
+      return res.status(409).json({ error: 'Ya existe una solicitud de anulación pendiente' });
     }
 
     const result = await query(
-      `INSERT INTO solicitudes_anulacion (ticket_id, solicitado_por, motivo, estado) VALUES (?,?,?,?)`,
-      [id, usuarioId, motivo, 'pendiente']
+      `INSERT INTO solicitudes_anulacion (ticket_id, solicitado_por, motivo, estado) VALUES (?,?,?,'pendiente')`,
+      [id, usuarioId, motivo]
     );
 
-    await _notificar(
-      'solicitud_anulacion',
+    await _notificar('solicitud_anulacion',
       `Solicitud de anulación del ticket ${ticket.numero_serie}. ¿Aprobar?`,
-      'ambos', result.insertId, 'solicitudes_anulacion'
-    );
+      'ambos', result.insertId, 'solicitudes_anulacion');
     await _log(usuarioId, 'solicitar_anulacion', 'tickets', Number(id),
       { numero_serie: ticket.numero_serie, motivo }, ip);
 
-    return res.status(201).json({ mensaje: 'Solicitud de anulación enviada al administrador', solicitud_id: result.insertId });
+    return res.status(201).json({ mensaje: 'Solicitud enviada al administrador', solicitud_id: result.insertId });
   } catch (err) {
     console.error('[ticket.controller] solicitarAnulacion:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 }
+
+// ─── GET /api/tickets/anulaciones ────────────────────────────────────────────
 
 async function listarSolicitudesAnulacion(req, res) {
   const { estado = 'pendiente' } = req.query;
@@ -478,10 +579,12 @@ async function listarSolicitudesAnulacion(req, res) {
   }
 }
 
+// ─── PATCH /api/tickets/anulaciones/:solicitudId ──────────────────────────────
+
 async function responderAnulacion(req, res) {
-  const { solicitudId } = req.params;
-  const { decision } = req.body;
-  const { id: usuarioId } = req.usuario;
+  const { solicitudId }    = req.params;
+  const { decision }       = req.body;
+  const { id: usuarioId }  = req.usuario;
   const ip = _ip(req);
 
   if (!['aprobada', 'rechazada'].includes(decision)) {
@@ -492,14 +595,14 @@ async function responderAnulacion(req, res) {
   try {
     await conn.beginTransaction();
 
-    const [sol] = (await conn.query(
+    const [solRows] = await conn.query(
       `SELECT sa.*, t.numero_serie, t.estado AS ticket_estado
           FROM solicitudes_anulacion sa
           JOIN tickets t ON t.id = sa.ticket_id
         WHERE sa.id = ? LIMIT 1`,
       [solicitudId]
-    ))[0];
-
+    );
+    const sol = solRows[0];
     if (!sol) { await conn.rollback(); conn.release(); return res.status(404).json({ error: 'Solicitud no encontrada' }); }
     if (sol.estado !== 'pendiente') { await conn.rollback(); conn.release(); return res.status(409).json({ error: 'Solicitud ya procesada' }); }
 
@@ -507,16 +610,13 @@ async function responderAnulacion(req, res) {
       `UPDATE solicitudes_anulacion SET estado = ?, revisado_por = ?, fecha_revision = NOW(), updated_at = NOW() WHERE id = ?`,
       [decision, usuarioId, solicitudId]
     );
-
     if (decision === 'aprobada') {
       await conn.query(
-        `UPDATE tickets SET estado = 'ANULADO', updated_at = NOW() WHERE id = ?`,
-        [sol.ticket_id]
+        `UPDATE tickets SET estado = 'ANULADO', updated_at = NOW() WHERE id = ?`, [sol.ticket_id]
       );
     }
 
-    await conn.commit();
-    conn.release();
+    await conn.commit(); conn.release();
 
     await _log(usuarioId, `anulacion_${decision}`, 'tickets', sol.ticket_id,
       { numero_serie: sol.numero_serie, solicitud_id: solicitudId }, ip);
@@ -529,70 +629,64 @@ async function responderAnulacion(req, res) {
   }
 }
 
+// ─── POST /api/tickets/:id/pagar ──────────────────────────────────────────────
+
 async function procesarPago(req, res) {
-  const { id } = req.params;
-  const { cedula_foto_url } = req.body;
-  const { id: usuarioId, bodega_id, rol } = req.usuario;
+  const { id }                              = req.params;
+  const { cedula_foto_url }                 = req.body;
+  const { id: usuarioId, bodega_id, rol }   = req.usuario;
   const ip = _ip(req);
 
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
 
-    const [ticket] = (await conn.query(
+    const [ticketRows] = await conn.query(
       `SELECT t.*, b.prefijo AS bodega_prefijo
-          FROM tickets t
-          JOIN bodegas b ON b.id = t.bodega_id
+          FROM tickets t JOIN bodegas b ON b.id = t.bodega_id
         WHERE t.id = ? LIMIT 1`,
       [id]
-    ))[0];
-
+    );
+    const ticket = ticketRows[0];
     if (!ticket) { await conn.rollback(); conn.release(); return res.status(404).json({ error: 'Ticket no encontrado' }); }
     if (rol === 'bodeguero' && ticket.bodega_id !== bodega_id) {
       await conn.rollback(); conn.release(); return res.status(403).json({ error: 'Acceso denegado' });
     }
     if (ticket.estado !== 'GANADO') {
       await conn.rollback(); conn.release();
-      return res.status(409).json({ error: `Solo se pueden pagar tickets en estado GANADO. Estado actual: ${ticket.estado}` });
+      return res.status(409).json({ error: `Solo tickets GANADO. Estado actual: ${ticket.estado}` });
     }
-
     if (parseFloat(ticket.ganancia_potencial_usd) >= MAX_GANANCIA_USD && !cedula_foto_url) {
       await conn.rollback(); conn.release();
-      return res.status(400).json({ error: `Ganancia de $${MAX_GANANCIA_USD}: se requiere foto de cédula (cedula_foto_url)` });
+      return res.status(400).json({ error: `Ganancia $${MAX_GANANCIA_USD}: se requiere cedula_foto_url` });
     }
 
-    const tasa        = await _obtenerTasaBcv();
-    const montoUsd    = parseFloat(ticket.ganancia_potencial_usd);
-    const montoBs     = Math.round(montoUsd * tasa * 100) / 100;
-    const ahora       = new Date();
+    const tasa     = await _obtenerTasaBcv();
+    const montoUsd = parseFloat(ticket.ganancia_potencial_usd);
+    const montoBs  = Math.round(montoUsd * tasa * 100) / 100;
+    const ahora    = new Date();
 
     await conn.query(
-      `INSERT INTO pagos
-          (ticket_id, monto_pagado_usd, monto_pagado_bs, moneda, tasa_bcv_pago,
-          usuario_quien_pago, fecha_pago, cedula_foto_url)
-        VALUES (?,?,?,?,?,?,?,?)`,
+      `INSERT INTO pagos (ticket_id, monto_pagado_usd, monto_pagado_bs, moneda, tasa_bcv_pago,
+          usuario_quien_pago, fecha_pago, cedula_foto_url) VALUES (?,?,?,?,?,?,?,?)`,
       [ticket.id, montoUsd, montoBs, ticket.moneda_pago, tasa, usuarioId, ahora, cedula_foto_url ?? null]
     );
-
     await conn.query(
       `UPDATE tickets SET estado = 'PAGADO', fecha_cobro = ?, updated_at = NOW() WHERE id = ?`,
       [ahora, ticket.id]
     );
 
-    await conn.commit();
-    conn.release();
+    await conn.commit(); conn.release();
 
-    await _notificar(
-      'premio_alto_pagado',
+    await _notificar('premio_alto_pagado',
       `Ticket ${ticket.numero_serie} pagó $${montoUsd} en bodega ${ticket.bodega_id}`,
-      'ambos', ticket.id, 'tickets'
-    );
+      'ambos', ticket.id, 'tickets');
     await _log(usuarioId, 'pagar_premio', 'tickets', ticket.id,
-      { numero_serie: ticket.numero_serie, monto_usd: montoUsd, moneda: ticket.moneda_pago }, ip);
+      { numero_serie: ticket.numero_serie, monto_usd: montoUsd }, ip);
 
     return res.status(200).json({
       mensaje: 'Premio pagado correctamente',
-      pago: { ticket_id: ticket.id, numero_serie: ticket.numero_serie, monto_pagado_usd: montoUsd, monto_pagado_bs: montoBs, moneda: ticket.moneda_pago }
+      pago: { ticket_id: ticket.id, numero_serie: ticket.numero_serie, monto_pagado_usd: montoUsd, monto_pagado_bs: montoBs },
     });
   } catch (err) {
     try { await conn.rollback(); conn.release(); } catch {}
@@ -607,6 +701,8 @@ module.exports = {
   listarTickets,
   buscarTicketPorSerie,
   obtenerTicket,
+  consultarQR,
+  actualizarModoImpresion,
   solicitarAnulacion,
   listarSolicitudesAnulacion,
   responderAnulacion,

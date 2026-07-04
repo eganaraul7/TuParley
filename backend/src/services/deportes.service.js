@@ -2,6 +2,7 @@
 const axios     = require('axios');
 const { query } = require('../config/db');
 const env       = require('../config/env');
+const { traducirEvento } = require('./traduccion.service');
 
 // ── Configuración por deporte ─────────────────────────────────────────────────
 const DEPORTES_CONFIG = {
@@ -45,7 +46,7 @@ function _normalizarApisports(f, deporte) {
   const equipoLocal   = f.teams?.home?.name ?? '';
   const equipoVisit   = f.teams?.away?.name ?? '';
   const fechaStr      = f.fixture?.date ?? f.date ?? null;
-  return { api_evento_id, deporte, liga, equipoLocal, equipoVisit, fechaStr };
+  return traducirEvento({ api_evento_id, deporte, liga, equipoLocal, equipoVisit, fechaStr });
 }
 
 function _normalizarRacing(carrera) {
@@ -55,7 +56,8 @@ function _normalizarRacing(carrera) {
   const equipoLocal   = carrera.race_name ?? `Carrera`;
   const equipoVisit   = runners.slice(0, 3).map(r => r.horse ?? r.name).join(', ') || 'Sin jinetes';
   const fechaStr      = carrera.off_dt ?? null;
-  return { api_evento_id, deporte: 'caballos', liga, equipoLocal, equipoVisit, fechaStr };
+  // Nota: carreras de caballos tienen nombres propios; traducirEvento aplica solo liga.
+  return traducirEvento({ api_evento_id, deporte: 'caballos', liga, equipoLocal, equipoVisit, fechaStr });
 }
 
 // ── Fetch por deporte ─────────────────────────────────────────────────────────
@@ -93,6 +95,19 @@ async function _fetchDeporte(deporte, config) {
   return todasLasFixtures.map(f => _normalizarApisports(f, deporte));
 }
 
+// ── Auto-registro de torneos nuevos ──────────────────────────────────────────
+
+async function _registrarTorneosNuevos(deporte, eventos) {
+  // Recopilar ligas únicas del lote de eventos procesado
+  const ligasUnicas = [...new Set(eventos.map(ev => ev.liga).filter(Boolean))];
+  for (const liga of ligasUnicas) {
+    await query(
+      `INSERT IGNORE INTO torneos_config (deporte, nombre_liga, activo) VALUES (?, ?, 1)`,
+      [deporte, liga]
+    );
+  }
+}
+
 // ── Sincronizar eventos semana ────────────────────────────────────────────────
 
 async function sincronizarEventosSemana() {
@@ -127,6 +142,10 @@ async function sincronizarEventosSemana() {
           resultados.actualizados++;
         }
       }
+
+      // Auto-registrar ligas nuevas detectadas en este deporte
+      await _registrarTorneosNuevos(deporte, eventos);
+
     } catch (err) {
       resultados.errores.push({ deporte, error: err.message });
     }
