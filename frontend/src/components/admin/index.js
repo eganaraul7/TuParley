@@ -10,3 +10,4 @@ export { default as TabBcv }            from './TabBcv';
 export { default as TabReportes }       from './TabReportes';
 export { default as TabNotificaciones } from './TabNotificaciones';
 export { default as TabConfiguracion }  from './TabConfiguracion';
+export { default as TabBodegas }        from './TabBodegas';
