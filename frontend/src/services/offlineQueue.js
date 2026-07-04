@@ -1,5 +1,3 @@
-import { ticketsService } from './ticketsService';
-
 /**
  * offlineQueue.js — cola local de tickets creados sin conexión
  *
@@ -22,36 +20,32 @@ import { ticketsService } from './ticketsService';
  *   Luego SHA-256 hex del string resultante.
  */
 
+import { ticketsService } from './ticketsService';
+
 const DB_NAME    = 'tuparley_offline';
 const DB_VERSION = 1;
 const STORE      = 'tickets_pendientes';
 
-// ─── IndexedDB: apertura/migración ─────────────────────────────────────────────
+// ─── IndexedDB ───────────────────────────────────────────────────────────────
+
 function abrirDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'local_id' });
       }
     };
-
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
   });
 }
 
-// ─── helpers internos ───────────────────────────────────────────────────────────
 function r4() {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
-/**
- * generarNumeroSerieLocal — mismo formato que el backend genera online
- * @param {string} prefijoBodega  ej. 'B1'
- */
 function generarNumeroSerieLocal(prefijoBodega) {
   return `${prefijoBodega}-${r4()}-${r4()}`;
 }
@@ -68,22 +62,16 @@ function serializarSelecciones(selecciones) {
   );
 }
 
-/**
- * generarHashTicket — SHA-256 vía Web Crypto API (requiere contexto seguro: HTTPS/localhost)
- */
 async function generarHashTicket({ numero_serie, bodega_id, usuario_id, monto_apostado_usd, cuota_combinada, selecciones, ts }) {
   const seleccionesValidas = serializarSelecciones(selecciones);
   const base = [numero_serie, bodega_id, usuario_id, monto_apostado_usd, cuota_combinada, seleccionesValidas, ts].join('|');
-
   const encoder    = new TextEncoder();
   const bufferHash = await crypto.subtle.digest('SHA-256', encoder.encode(base));
-
-  return [...new Uint8Array(bufferHash)]
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return [...new Uint8Array(bufferHash)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// ─── operaciones IndexedDB ───────────────────────────────────────────────────────
+// ─── IndexedDB helpers ────────────────────────────────────────────────────────
+
 async function guardarEnDB(ticket) {
   const db = await abrirDB();
   return new Promise((resolve, reject) => {
@@ -91,6 +79,15 @@ async function guardarEnDB(ticket) {
     tx.objectStore(STORE).put(ticket);
     tx.oncomplete = () => resolve(ticket);
     tx.onerror    = () => reject(tx.error);
+  });
+}
+
+async function leerDeDB(local_id) {
+  const db = await abrirDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).get(local_id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror   = () => reject(req.error);
   });
 }
 
@@ -107,8 +104,7 @@ async function eliminarDeDB(local_id) {
 async function leerTodosDeDB() {
   const db = await abrirDB();
   return new Promise((resolve, reject) => {
-    const tx  = db.transaction(STORE, 'readonly');
-    const req = tx.objectStore(STORE).getAll();
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
     req.onsuccess = () => resolve(req.result ?? []);
     req.onerror   = () => reject(req.error);
   });
@@ -117,23 +113,18 @@ async function leerTodosDeDB() {
 // ─── API pública ──────────────────────────────────────────────────────────────
 
 /**
- * agregarTicket — crear ticket offline: genera serie + hash y lo guarda en cola
- *
- * @param {object} datosTicket  Mismo shape que ticketsService.crear():
- *   { selecciones, monto_apostado_usd, monto_apostado_bs, tasa_bcv_dia,
- *     cuota_combinada, ganancia_potencial_usd, ganancia_potencial_bs, moneda_pago }
- * @param {object} usuario  JWT payload activo: { id, bodega_id, bodega_prefijo }
- * @returns {Promise<object>}  Ticket local completo, listo para imprimir
+ * agregarTicket — crear ticket offline: genera serie + hash y guarda en cola.
+ * @returns {Promise<object>} ticket local completo con `local_id` incluido.
  */
 export async function agregarTicket(datosTicket, usuario) {
-  const ts            = Date.now();
-  const numero_serie  = generarNumeroSerieLocal(usuario.bodega_prefijo);
-  const local_id      = crypto.randomUUID();
+  const ts           = Date.now();
+  const numero_serie = generarNumeroSerieLocal(usuario.bodega_prefijo);
+  const local_id     = crypto.randomUUID();
 
   const base = {
     numero_serie,
-    bodega_id:   usuario.bodega_id,
-    usuario_id:  usuario.id,
+    bodega_id:  usuario.bodega_id,
+    usuario_id: usuario.id,
     ts,
     ...datosTicket,
   };
@@ -144,8 +135,9 @@ export async function agregarTicket(datosTicket, usuario) {
     local_id,
     ...base,
     hash_sha256,
-    origen:        'offline',
-    sincronizado:  false,
+    modo_impresion: null,           // se actualiza via actualizarModoOffline()
+    origen:         'offline',
+    sincronizado:   false,
     fecha_creacion: new Date(ts).toISOString(),
   };
 
@@ -154,8 +146,20 @@ export async function agregarTicket(datosTicket, usuario) {
 }
 
 /**
- * obtenerPendientes — listar tickets en cola sin sincronizar
- * @returns {Promise<object[]>}
+ * actualizarModoOffline — guardar modo_impresion elegido en el ticket de la cola.
+ * Llamar DESPUÉS de que el usuario elige física o digital en el ModalImpresion.
+ * @param {string} local_id
+ * @param {'fisica'|'digital'} modo
+ */
+export async function actualizarModoOffline(local_id, modo) {
+  if (!local_id) return;
+  const ticket = await leerDeDB(local_id);
+  if (!ticket) return;
+  await guardarEnDB({ ...ticket, modo_impresion: modo });
+}
+
+/**
+ * obtenerPendientes — listar tickets en cola sin sincronizar.
  */
 export async function obtenerPendientes() {
   return leerTodosDeDB();
@@ -163,42 +167,48 @@ export async function obtenerPendientes() {
 
 /**
  * contarPendientes
- * @returns {Promise<number>}
  */
 export async function contarPendientes() {
-  const pendientes = await leerTodosDeDB();
-  return pendientes.length;
+  return (await leerTodosDeDB()).length;
 }
 
 /**
- * sincronizar — enviar todos los pendientes al backend
- * Tickets aceptados se eliminan de la cola; rechazados quedan para revisión manual.
- *
- * @returns {Promise<{ aceptados: number, rechazados: object[] }>}
+ * sincronizar — enviar pendientes al backend.
+ * Acepta:  { resultados: [{ numero_serie, estado, ticket_id?, motivo? }] }
+ * Elimina de cola los que quedaron en estado 'sincronizado' o 'ya_existe'.
  */
 export async function sincronizar() {
   const pendientes = await leerTodosDeDB();
-  if (pendientes.length === 0) {
-    return { aceptados: 0, rechazados: [] };
-  }
+  if (pendientes.length === 0) return { aceptados: 0, rechazados: [] };
 
-  const res = await ticketsService.sincronizarOffline(pendientes);
-  const rechazadosIds = new Set((res.rechazados ?? []).map((r) => r.local_id));
+  // Bug fix: backend espera { cola }, no { tickets }
+  const res        = await ticketsService.sincronizarOffline(pendientes);
+  const resultados = res.resultados ?? [];
 
+  // Series que el backend procesó correctamente
+  const seriesExitosas = new Set(
+    resultados
+      .filter((r) => r.estado === 'sincronizado' || r.estado === 'ya_existe')
+      .map((r) => r.numero_serie),
+  );
+
+  // Eliminar de IDB solo los exitosos
   await Promise.all(
     pendientes
-      .filter((t) => !rechazadosIds.has(t.local_id))
+      .filter((t) => seriesExitosas.has(t.numero_serie))
       .map((t) => eliminarDeDB(t.local_id)),
   );
 
-  return res;
+  const rechazados = resultados.filter((r) => r.estado === 'rechazado');
+  const aceptados  = resultados.filter((r) => r.estado === 'sincronizado').length;
+
+  return { aceptados, rechazados };
 }
 
 /**
- * iniciarAutoSync — escuchar reconexión y sincronizar automáticamente
- * Llamar UNA vez desde App.jsx al montar la aplicación.
- *
- * @returns {() => void} función de limpieza (remover listener)
+ * iniciarAutoSync — escuchar reconexión y sincronizar automáticamente.
+ * Llamar UNA vez desde App.jsx al montar.
+ * @returns {() => void} cleanup
  */
 export function iniciarAutoSync() {
   async function intentarSync() {
@@ -212,9 +222,7 @@ export function iniciarAutoSync() {
     }
   }
 
-  // intentar de inmediato si ya hay conexión al cargar (cola de sesión previa)
   if (navigator.onLine) intentarSync();
-
   window.addEventListener('online', intentarSync);
   return () => window.removeEventListener('online', intentarSync);
 }

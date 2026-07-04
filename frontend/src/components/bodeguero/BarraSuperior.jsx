@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { Search, Clock, History, Wallet, LogOut,
-          Printer, Usb, Bluetooth, Unlink, QrCode, Loader2 } from 'lucide-react';
+         Printer, Usb, Bluetooth, Unlink, QrCode, Loader2 } from 'lucide-react';
 import { useAuthStore }   from '../../store/authStore';
 import { printerService } from '../../services/printerService';
 import { bodegaService }  from '../../services/bodegaService';

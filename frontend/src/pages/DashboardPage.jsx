@@ -13,8 +13,11 @@ import { useBcvStore }     from '../store/bcvStore';
 import { useSocket }       from '../hooks/useSocket';
 import { eventosService }  from '../services/eventosService';
 import { ticketsService }  from '../services/ticketsService';
-import { agregarTicket }   from '../services/offlineQueue';
 import { printerService }  from '../services/printerService';
+import {
+  agregarTicket,
+  actualizarModoOffline,
+} from '../services/offlineQueue';
 import { MAX_GANANCIA_USD, APUESTA_MINIMA_USD } from '../utils/constants';
 
 import { BarraSuperior, NavDeportes, ColumnaEventos } from '../components/bodeguero';
@@ -25,17 +28,17 @@ export default function DashboardPage() {
   const { usuario, clearAuth } = useAuthStore((s) => s);
   const tasaBcv                = useBcvStore((s) => s.tasaBcv);
 
-  const [deporteActivo,         setDeporteActivo]         = useState('futbol');
-  const [selecciones,           setSelecciones]           = useState([]);
-  const [montoUsd,              setMontoUsd]              = useState(0);
-  const [imprimiendo,           setImprimiendo]           = useState(false);
-  const [avisoOffline,          setAvisoOffline]          = useState(false);
-  const [avisoSinImprimir,      setAvisoSinImprimir]      = useState(false);
-  const [serieBuscada,          setSerieBuscada]          = useState('');
-  const [contadores,            setContadores]            = useState({});
-  const [ticketCreado,          setTicketCreado]          = useState(null);
-  const [modalImpresionAbierto, setModalImpresionAbierto] = useState(false);
-  const [modalQRAbierto,        setModalQRAbierto]        = useState(false);
+  const [deporteActivo,          setDeporteActivo]          = useState('futbol');
+  const [selecciones,            setSelecciones]            = useState([]);
+  const [montoUsd,               setMontoUsd]               = useState(0);
+  const [imprimiendo,            setImprimiendo]            = useState(false);
+  const [avisoOffline,           setAvisoOffline]           = useState(false);
+  const [avisoSinImprimir,       setAvisoSinImprimir]       = useState(false);
+  const [serieBuscada,           setSerieBuscada]           = useState('');
+  const [contadores,             setContadores]             = useState({});
+  const [ticketCreado,           setTicketCreado]           = useState(null);
+  const [modalImpresionAbierto,  setModalImpresionAbierto]  = useState(false);
+  const [modalQRAbierto,         setModalQRAbierto]         = useState(false);
 
   useSocket('eventos_actualizados', cargarContadores);
   useSocket('mantenimiento', ({ activo }) => {
@@ -60,12 +63,13 @@ export default function DashboardPage() {
     try {
       const KEYS = ['futbol', 'baloncesto', 'beisbol', 'caballos', 'tenis'];
       const res  = await Promise.allSettled(
-        KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' }))
+        KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' })),
       );
       const map = {};
       KEYS.forEach((dep, i) => {
         map[dep] = res[i].status === 'fulfilled'
-          ? (res[i].value?.total ?? res[i].value?.eventos?.length ?? 0) : 0;
+          ? (res[i].value?.total ?? res[i].value?.eventos?.length ?? 0)
+          : 0;
       });
       setContadores(map);
     } catch { /* silencioso */ }
@@ -73,12 +77,12 @@ export default function DashboardPage() {
 
   const cuotaCombinada = useMemo(
     () => selecciones.reduce((acc, s) => acc * Number(s.cuota_aplicada), 1),
-    [selecciones]
+    [selecciones],
   );
 
   const gananciaPotencialUsd = useMemo(
     () => (montoUsd > 0 ? montoUsd * cuotaCombinada : 0),
-    [montoUsd, cuotaCombinada]
+    [montoUsd, cuotaCombinada],
   );
 
   const limiteAlcanzado = gananciaPotencialUsd >= MAX_GANANCIA_USD;
@@ -101,7 +105,9 @@ export default function DashboardPage() {
       if (sel?.modalidad_id === modalidad.id) {
         setSelecciones((prev) => prev.filter((s) => s.evento_id !== evento.id));
       } else {
-        setSelecciones((prev) => prev.map((s) => s.evento_id === evento.id ? _buildSeleccion(evento, modalidad) : s));
+        setSelecciones((prev) =>
+          prev.map((s) => s.evento_id === evento.id ? _buildSeleccion(evento, modalidad) : s),
+        );
       }
       return;
     }
@@ -136,9 +142,11 @@ export default function DashboardPage() {
     };
   }
 
+  // Incluye local_id para tickets offline — necesario para actualizarModoOffline
   function _normalizarTicket(raw, gananciaUsd, gananciaBs, tasa) {
     return {
-      id:                     raw.id ?? null,
+      id:                     raw.id       ?? null,
+      local_id:               raw.local_id ?? null,
       numero_serie:           raw.numero_serie,
       monto_apostado_usd:     raw.monto_apostado_usd     ?? montoUsd,
       monto_apostado_bs:      raw.monto_apostado_bs      ?? montoUsd * tasa,
@@ -177,7 +185,7 @@ export default function DashboardPage() {
             rawTicket = await agregarTicket(payload, usuario);
             setAvisoOffline(true);
           } else {
-            console.error('[DashboardPage] crearTicket error:', err);
+            console.error('[DashboardPage] crearTicket:', err);
             setImprimiendo(false);
             return;
           }
@@ -187,21 +195,27 @@ export default function DashboardPage() {
       setTicketCreado(_normalizarTicket(rawTicket, gananciaUsd, gananciaBs, tasa));
       setModalImpresionAbierto(true);
     } catch (err) {
-      console.error('[DashboardPage] handleImprimir error:', err);
+      console.error('[DashboardPage] handleImprimir:', err);
     } finally {
       setImprimiendo(false);
     }
   }
 
-  // ── Callbacks del ModalImpresion ──────────────────────────────────────────
+  // ── Registrar modo — online: PATCH server | offline: actualizar IDB ───────
+
+  function _registrarModo(modo) {
+    if (ticketCreado?.id) {
+      // Online: fire-and-forget al servidor
+      ticketsService.actualizarModoImpresion(ticketCreado.id, modo).catch(() => {});
+    } else if (ticketCreado?.local_id) {
+      // Offline: guardar en IndexedDB para que el sync lo incluya
+      actualizarModoOffline(ticketCreado.local_id, modo).catch(() => {});
+    }
+  }
 
   async function handleModoFisica() {
     setModalImpresionAbierto(false);
-
-    // Registrar modo en BD — fire and forget (no bloquear si falla o es offline)
-    if (ticketCreado?.id) {
-      ticketsService.actualizarModoImpresion(ticketCreado.id, 'fisica').catch(() => {});
-    }
+    _registrarModo('fisica');
 
     if (!printerService.estado().conectada) {
       setAvisoSinImprimir(true);
@@ -219,12 +233,7 @@ export default function DashboardPage() {
 
   function handleModoDigital() {
     setModalImpresionAbierto(false);
-
-    // Registrar modo en BD — fire and forget
-    if (ticketCreado?.id) {
-      ticketsService.actualizarModoImpresion(ticketCreado.id, 'digital').catch(() => {});
-    }
-
+    _registrarModo('digital');
     setModalQRAbierto(true);
   }
 
