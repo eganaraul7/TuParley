@@ -1,37 +1,43 @@
-// Archivo: DashboardPage.jsx
+// Nombre de archivo: DashboardPage.jsx
 // Ruta: frontend/src/pages/DashboardPage.jsx
+// Función: Dashboard principal del bodeguero. Integra flujo dual de impresión:
+//          ModalImpresion elige modo (física/digital), ModalQR muestra el QR.
+//          El ticket se crea ANTES de mostrar el selector de modo.
+
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WifiOff, AlertTriangle } from 'lucide-react';
 
-import { useAuthStore } from '../store/authStore';
-import { useBcvStore  } from '../store/bcvStore';
-import { useSocket    } from '../hooks/useSocket';
-import { eventosService } from '../services/eventosService';
-import { ticketsService } from '../services/ticketsService';
-import { agregarTicket  } from '../services/offlineQueue';
-import { printerService } from '../services/printerService';
+import { useAuthStore }    from '../store/authStore';
+import { useBcvStore }     from '../store/bcvStore';
+import { useSocket }       from '../hooks/useSocket';
+import { eventosService }  from '../services/eventosService';
+import { ticketsService }  from '../services/ticketsService';
+import { agregarTicket }   from '../services/offlineQueue';
+import { printerService }  from '../services/printerService';
 import { MAX_GANANCIA_USD, APUESTA_MINIMA_USD } from '../utils/constants';
 
 import { BarraSuperior, NavDeportes, ColumnaEventos } from '../components/bodeguero';
-import { TicketSlip, ModalTicket } from '../components/ticket';
+import { TicketSlip, ModalTicket, ModalImpresion, ModalQR } from '../components/ticket';
 
 export default function DashboardPage() {
-  const navigate                = useNavigate();
-  const { usuario, clearAuth }  = useAuthStore((s) => s);
-  const tasaBcv                 = useBcvStore((s) => s.tasaBcv);
+  const navigate               = useNavigate();
+  const { usuario, clearAuth } = useAuthStore((s) => s);
+  const tasaBcv                = useBcvStore((s) => s.tasaBcv);
 
-  const [deporteActivo, setDeporteActivo] = useState('futbol');
-  const [selecciones, setSelecciones]     = useState([]);
-  const [montoUsd, setMontoUsd]           = useState(0);
-  const [imprimiendo, setImprimiendo]     = useState(false);
-  const [avisoOffline, setAvisoOffline]   = useState(false);
-  const [avisoSinImprimir, setAvisoSinImprimir] = useState(false);
-  const [serieBuscada, setSerieBuscada]   = useState('');
-  const [contadores, setContadores]       = useState({});
+  const [deporteActivo,         setDeporteActivo]         = useState('futbol');
+  const [selecciones,           setSelecciones]           = useState([]);
+  const [montoUsd,              setMontoUsd]              = useState(0);
+  const [imprimiendo,           setImprimiendo]           = useState(false);
+  const [avisoOffline,          setAvisoOffline]          = useState(false);
+  const [avisoSinImprimir,      setAvisoSinImprimir]      = useState(false);
+  const [serieBuscada,          setSerieBuscada]          = useState('');
+  const [contadores,            setContadores]            = useState({});
+  const [ticketCreado,          setTicketCreado]          = useState(null);
+  const [modalImpresionAbierto, setModalImpresionAbierto] = useState(false);
+  const [modalQRAbierto,        setModalQRAbierto]        = useState(false);
 
   useSocket('eventos_actualizados', cargarContadores);
-  useSocket('bcv_actualizada', () => {});
   useSocket('mantenimiento', ({ activo }) => {
     if (activo) navigate('/login', { replace: true });
   });
@@ -52,17 +58,14 @@ export default function DashboardPage() {
 
   async function cargarContadores() {
     try {
-      const DEPORTES_KEYS = ['futbol', 'baloncesto', 'beisbol', 'caballos', 'tenis'];
-      const resultados = await Promise.allSettled(
-        DEPORTES_KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' })),
+      const KEYS = ['futbol', 'baloncesto', 'beisbol', 'caballos', 'tenis'];
+      const res  = await Promise.allSettled(
+        KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' }))
       );
       const map = {};
-      DEPORTES_KEYS.forEach((dep, i) => {
-        if (resultados[i].status === 'fulfilled') {
-          map[dep] = resultados[i].value?.total ?? resultados[i].value?.eventos?.length ?? 0;
-        } else {
-          map[dep] = 0;
-        }
+      KEYS.forEach((dep, i) => {
+        map[dep] = res[i].status === 'fulfilled'
+          ? (res[i].value?.total ?? res[i].value?.eventos?.length ?? 0) : 0;
       });
       setContadores(map);
     } catch { /* silencioso */ }
@@ -70,37 +73,17 @@ export default function DashboardPage() {
 
   const cuotaCombinada = useMemo(
     () => selecciones.reduce((acc, s) => acc * Number(s.cuota_aplicada), 1),
-    [selecciones],
+    [selecciones]
   );
 
   const gananciaPotencialUsd = useMemo(
     () => (montoUsd > 0 ? montoUsd * cuotaCombinada : 0),
-    [montoUsd, cuotaCombinada],
+    [montoUsd, cuotaCombinada]
   );
 
   const limiteAlcanzado = gananciaPotencialUsd >= MAX_GANANCIA_USD;
 
-  function handleSeleccionar(evento, modalidad) {
-    const yaEstaEnEsteEvento = selecciones.some((s) => s.evento_id === evento.id);
-
-    if (yaEstaEnEsteEvento) {
-      const selExistente = selecciones.find((s) => s.evento_id === evento.id);
-      if (selExistente?.modalidad_id === modalidad.id) {
-        setSelecciones((prev) => prev.filter((s) => s.evento_id !== evento.id));
-      } else {
-        setSelecciones((prev) =>
-          prev.map((s) => (s.evento_id === evento.id ? buildSeleccion(evento, modalidad) : s)),
-        );
-      }
-      return;
-    }
-
-    if (limiteAlcanzado) return;
-
-    setSelecciones((prev) => [...prev, buildSeleccion(evento, modalidad)]);
-  }
-
-  function buildSeleccion(evento, modalidad) {
+  function _buildSeleccion(evento, modalidad) {
     return {
       evento_id:        evento.id,
       modalidad_id:     modalidad.id,
@@ -109,6 +92,21 @@ export default function DashboardPage() {
       seleccion:        modalidad.nombre_corto ?? modalidad.nombre,
       cuota_aplicada:   modalidad.cuota_base,
     };
+  }
+
+  function handleSeleccionar(evento, modalidad) {
+    const yaEnEsteEvento = selecciones.some((s) => s.evento_id === evento.id);
+    if (yaEnEsteEvento) {
+      const sel = selecciones.find((s) => s.evento_id === evento.id);
+      if (sel?.modalidad_id === modalidad.id) {
+        setSelecciones((prev) => prev.filter((s) => s.evento_id !== evento.id));
+      } else {
+        setSelecciones((prev) => prev.map((s) => s.evento_id === evento.id ? _buildSeleccion(evento, modalidad) : s));
+      }
+      return;
+    }
+    if (limiteAlcanzado) return;
+    setSelecciones((prev) => [...prev, _buildSeleccion(evento, modalidad)]);
   }
 
   function handleRemover(evento_id) {
@@ -120,96 +118,126 @@ export default function DashboardPage() {
     setMontoUsd(0);
   }
 
-  function _datosParaImprimir(numero_serie, fecha_creacion, gananciaUsd, gananciaBs, tasaActual) {
+  function _buildPayload(tasa, gananciaUsd, gananciaBs) {
     return {
-      numero_serie,
-      fecha_creacion,
-      bodega_nombre:          usuario?.bodega_nombre,
-      selecciones,
-      cuota_combinada:        cuotaCombinada,
-      monto_apostado_usd:     montoUsd,
-      monto_apostado_bs:      montoUsd * tasaActual,
-      ganancia_potencial_usd: gananciaUsd,
-      ganancia_potencial_bs:  gananciaBs,
-      tasa_bcv_dia:           tasaActual,
-      moneda_pago:            'USD',
-    };
-  }
-
-  async function _imprimirOAvisar(numero_serie, fecha_creacion, gananciaUsd, gananciaBs, tasaActual) {
-    if (!printerService.estado().conectada) {
-      setAvisoSinImprimir(true);
-      return;
-    }
-    try {
-      await printerService.imprimirTicket(
-        _datosParaImprimir(numero_serie, fecha_creacion, gananciaUsd, gananciaBs, tasaActual),
-      );
-    } catch (err) {
-      console.error('Error imprimiendo ticket:', err);
-      setAvisoSinImprimir(true);
-    }
-  }
-
-  async function handleImprimir() {
-    if (selecciones.length === 0 || montoUsd < APUESTA_MINIMA_USD) return;
-    setImprimiendo(true);
-
-    const tasaActual    = Number(tasaBcv) || 1;
-    const gananciaUsd   = Math.min(gananciaPotencialUsd, MAX_GANANCIA_USD);
-    const gananciaBs    = gananciaUsd * tasaActual;
-
-    const payload = {
       selecciones: selecciones.map((s) => ({
         evento_id:      s.evento_id,
         modalidad_id:   s.modalidad_id,
         cuota_aplicada: s.cuota_aplicada,
         seleccion:      s.seleccion,
       })),
-      monto_apostado_usd: montoUsd,
-      monto_apostado_bs:  montoUsd * tasaActual,
-      tasa_bcv_dia:       tasaActual,
-      cuota_combinada:    cuotaCombinada,
+      monto_apostado_usd:     montoUsd,
+      monto_apostado_bs:      montoUsd * tasa,
+      tasa_bcv_dia:           tasa,
+      cuota_combinada:        cuotaCombinada,
       ganancia_potencial_usd: gananciaUsd,
       ganancia_potencial_bs:  gananciaBs,
-      moneda_pago:        'USD',
+      moneda_pago:            'USD',
     };
+  }
 
-    if (!navigator.onLine) {
-      try {
-        const ticketLocal = await agregarTicket(payload, usuario);
-        await _imprimirOAvisar(ticketLocal.numero_serie, ticketLocal.fecha_creacion, gananciaUsd, gananciaBs, tasaActual);
-        setAvisoOffline(true);
-        handleLimpiar();
-      } catch (err) {
-        console.error('Error guardando ticket offline:', err);
-      } finally {
-        setImprimiendo(false);
-      }
-      return;
-    }
+  function _normalizarTicket(raw, gananciaUsd, gananciaBs, tasa) {
+    return {
+      id:                     raw.id ?? null,
+      numero_serie:           raw.numero_serie,
+      monto_apostado_usd:     raw.monto_apostado_usd     ?? montoUsd,
+      monto_apostado_bs:      raw.monto_apostado_bs      ?? montoUsd * tasa,
+      ganancia_potencial_usd: raw.ganancia_potencial_usd ?? gananciaUsd,
+      ganancia_potencial_bs:  raw.ganancia_potencial_bs  ?? gananciaBs,
+      tasa_bcv_dia:           raw.tasa_bcv_dia           ?? tasa,
+      cuota_combinada:        raw.cuota_combinada        ?? cuotaCombinada,
+      fecha_creacion:         raw.fecha_creacion,
+      selecciones,
+    };
+  }
+
+  // ── Crear ticket → abrir selector de modo ────────────────────────────────
+
+  async function handleImprimir() {
+    if (selecciones.length === 0 || montoUsd < APUESTA_MINIMA_USD) return;
+    setImprimiendo(true);
+
+    const tasa        = Number(tasaBcv) || 1;
+    const gananciaUsd = Math.min(gananciaPotencialUsd, MAX_GANANCIA_USD);
+    const gananciaBs  = gananciaUsd * tasa;
+    const payload     = _buildPayload(tasa, gananciaUsd, gananciaBs);
 
     try {
-      const { ticket } = await ticketsService.crear({ ...payload, origen: 'online' });
-      await _imprimirOAvisar(ticket.numero_serie, ticket.fecha_creacion, gananciaUsd, gananciaBs, tasaActual);
-      handleLimpiar();
-    } catch (err) {
-      const esErrorDeRed = !err.response;
-      if (esErrorDeRed) {
-        try {
-          const ticketLocal = await agregarTicket(payload, usuario);
-          await _imprimirOAvisar(ticketLocal.numero_serie, ticketLocal.fecha_creacion, gananciaUsd, gananciaBs, tasaActual);
-          setAvisoOffline(true);
-          handleLimpiar();
-        } catch (errOffline) {
-          console.error('Error guardando ticket offline:', errOffline);
-        }
+      let rawTicket;
+
+      if (!navigator.onLine) {
+        rawTicket = await agregarTicket(payload, usuario);
+        setAvisoOffline(true);
       } else {
-        console.error('Error creando ticket:', err);
+        try {
+          const { ticket } = await ticketsService.crear({ ...payload, origen: 'online' });
+          rawTicket = ticket;
+        } catch (err) {
+          if (!err.response) {
+            rawTicket = await agregarTicket(payload, usuario);
+            setAvisoOffline(true);
+          } else {
+            console.error('[DashboardPage] crearTicket error:', err);
+            setImprimiendo(false);
+            return;
+          }
+        }
       }
+
+      setTicketCreado(_normalizarTicket(rawTicket, gananciaUsd, gananciaBs, tasa));
+      setModalImpresionAbierto(true);
+    } catch (err) {
+      console.error('[DashboardPage] handleImprimir error:', err);
     } finally {
       setImprimiendo(false);
     }
+  }
+
+  // ── Callbacks del ModalImpresion ──────────────────────────────────────────
+
+  async function handleModoFisica() {
+    setModalImpresionAbierto(false);
+
+    // Registrar modo en BD — fire and forget (no bloquear si falla o es offline)
+    if (ticketCreado?.id) {
+      ticketsService.actualizarModoImpresion(ticketCreado.id, 'fisica').catch(() => {});
+    }
+
+    if (!printerService.estado().conectada) {
+      setAvisoSinImprimir(true);
+    } else {
+      try {
+        await printerService.imprimirTicket({ ...ticketCreado, bodega_nombre: usuario?.bodega_nombre });
+      } catch {
+        setAvisoSinImprimir(true);
+      }
+    }
+
+    setTicketCreado(null);
+    handleLimpiar();
+  }
+
+  function handleModoDigital() {
+    setModalImpresionAbierto(false);
+
+    // Registrar modo en BD — fire and forget
+    if (ticketCreado?.id) {
+      ticketsService.actualizarModoImpresion(ticketCreado.id, 'digital').catch(() => {});
+    }
+
+    setModalQRAbierto(true);
+  }
+
+  function handleCerrarModalImpresion() {
+    setModalImpresionAbierto(false);
+    setTicketCreado(null);
+    handleLimpiar();
+  }
+
+  function handleCerrarQR() {
+    setModalQRAbierto(false);
+    setTicketCreado(null);
+    handleLimpiar();
   }
 
   function handleLogout() {
@@ -234,14 +262,12 @@ export default function DashboardPage() {
           contadores={contadores}
           onSeleccionar={setDeporteActivo}
         />
-
         <ColumnaEventos
           deporte={deporteActivo}
           seleccionesActivas={selecciones}
           limiteAlcanzado={limiteAlcanzado}
           onSeleccionar={handleSeleccionar}
         />
-
         <TicketSlip
           selecciones={selecciones}
           tasaBcv={tasaBcv}
@@ -254,7 +280,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-50">
+      {/* Toasts */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-40">
         {avisoOffline && (
           <div className="bg-[#1e293b] border border-[#f59e0b]/40 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-2.5">
             <WifiOff className="w-4 h-4 text-[#f59e0b] shrink-0" />
@@ -263,12 +290,11 @@ export default function DashboardPage() {
             </span>
           </div>
         )}
-
         {avisoSinImprimir && (
           <div className="bg-[#1e293b] border border-[#ef4444]/40 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-2.5">
             <AlertTriangle className="w-4 h-4 text-[#ef4444] shrink-0" />
             <span className="text-white text-sm font-medium">
-              Ticket guardado, pero NO se imprimió — conecta la impresora (ícono arriba) y entrega el comprobante al cliente
+              Ticket guardado pero NO se imprimió — conecta la impresora
             </span>
           </div>
         )}
@@ -277,6 +303,23 @@ export default function DashboardPage() {
       {serieBuscada && (
         <ModalTicket serie={serieBuscada} onCerrar={() => setSerieBuscada('')} />
       )}
+
+      {modalImpresionAbierto && ticketCreado && (
+        <ModalImpresion
+          ticket={ticketCreado}
+          onFisica={handleModoFisica}
+          onDigital={handleModoDigital}
+          onClose={handleCerrarModalImpresion}
+        />
+      )}
+
+      {modalQRAbierto && ticketCreado && (
+        <ModalQR
+          ticket={ticketCreado}
+          onClose={handleCerrarQR}
+        />
+      )}
+
     </div>
   );
 }
