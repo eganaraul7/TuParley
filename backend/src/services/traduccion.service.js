@@ -113,8 +113,6 @@ const LIGAS = {
   'Australian Open': 'Abierto de Australia',
   'ATP Masters 1000': 'Masters 1000 ATP', 'ATP 500': 'ATP 500',
   'ATP 250': 'ATP 250', 'Davis Cup': 'Copa Davis',
-  'Horse Racing': 'Carreras de Caballos',
-  'Thoroughbred Racing': 'Carrera de Pura Sangre', 'Harness Racing': 'Trote',
 };
 
 const EQUIPOS = {
@@ -155,6 +153,9 @@ const EQUIPOS = {
   'Boston Red Sox': 'Red Sox', 'Chicago Cubs': 'Cubs',
   'Houston Astros': 'Astros', 'Atlanta Braves': 'Braves',
   'San Francisco Giants': 'Giants', 'San Diego Padres': 'Padres',
+  'St. Louis Cardinals': 'Cardinals', 'Philadelphia Phillies': 'Phillies',
+  'Toronto Blue Jays': 'Blue Jays', 'Washington Nationals': 'Nationals',
+  'New York Mets': 'Mets', 'Milwaukee Brewers': 'Brewers',
 };
 
 function _traducir(nombre, mapa) {

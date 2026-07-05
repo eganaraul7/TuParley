@@ -7,7 +7,7 @@ USE tuparley;
 
 CREATE TABLE IF NOT EXISTS torneos_config (
   id              INT UNSIGNED  AUTO_INCREMENT,
-  deporte         ENUM('futbol','baloncesto','beisbol','caballos','tenis') NOT NULL,
+  deporte         ENUM('futbol','baloncesto','beisbol','tenis') NOT NULL,
   nombre_liga     VARCHAR(150)  NOT NULL,
   activo          TINYINT(1)    NOT NULL DEFAULT 1,
   actualizado_por INT UNSIGNED  NULL,

@@ -61,7 +61,7 @@ export default function DashboardPage() {
 
   async function cargarContadores() {
     try {
-      const KEYS = ['futbol', 'baloncesto', 'beisbol', 'caballos', 'tenis'];
+      const KEYS = ['futbol', 'baloncesto', 'beisbol', 'tenis'];
       const res  = await Promise.allSettled(
         KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' })),
       );

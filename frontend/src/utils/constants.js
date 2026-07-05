@@ -13,7 +13,6 @@ export const DEPORTES = [
   { key: 'futbol',     label: 'Fútbol'     },
   { key: 'baloncesto', label: 'Baloncesto' },
   { key: 'beisbol',    label: 'Béisbol'    },
-  { key: 'caballos',   label: 'Caballos'   },
   { key: 'tenis',      label: 'Tenis'      },
 ];
 
