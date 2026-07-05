@@ -17,7 +17,7 @@ function _ip(req) {
   return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
 }
 
-const DEPORTES_VALIDOS = ['futbol', 'baloncesto', 'beisbol', 'caballos', 'tenis'];
+const DEPORTES_VALIDOS = ['futbol', 'baloncesto', 'beisbol', 'tenis'];
 
 // ─── GET /api/eventos ─────────────────────────────────────────────────────────
 

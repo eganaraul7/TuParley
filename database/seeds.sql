@@ -58,7 +58,6 @@ INSERT IGNORE INTO categorias_config (deporte, activa, actualizado_por) VALUES
 ('futbol',      1, 1),
 ('baloncesto',  1, 1),
 ('beisbol',     1, 1),
-('caballos',    1, 1),
 ('tenis',       1, 1);
 
 -- ============================================================
@@ -185,46 +184,6 @@ INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuot
   'Apuesta al número total de hits (golpes conectados) que habrá en todo el partido entre ambos equipos combinados. Over o Under de un número fijo.',
   2.50, 4.00, 3.25,
   'dificil', 1
-);
-
--- ============================================================
--- 9. MODALIDADES — CARRERAS DE CABALLOS (5)
--- ============================================================
-INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
-(
-  'caballos',
-  'Ganador (Win)',
-  'Apuesta simple: elige qué caballo llegará en PRIMER lugar al cruzar la meta. Es la apuesta más básica y frecuente en carreras.',
-  2.00, 4.00, 3.00,
-  'facil', 1
-),
-(
-  'caballos',
-  'Doble Perfecta',
-  'Predice los caballos que quedarán en PRIMER y SEGUNDO lugar, en cualquier orden. Más difícil que el ganador simple, con mayor premio.',
-  4.00, 8.00, 6.00,
-  'media', 1
-),
-(
-  'caballos',
-  'Perfecta (Exacta)',
-  'Predice los caballos que quedarán en PRIMER y SEGUNDO lugar, EN ESE ORDEN EXACTO. Si se equivoca el orden, pierde la apuesta.',
-  6.00, 12.00, 9.00,
-  'media_dificil', 1
-),
-(
-  'caballos',
-  'Triple Perfecta (Trifecta)',
-  'Predice los tres primeros caballos EN EL ORDEN EXACTO de llegada (1°, 2° y 3°). Alta dificultad con premios muy elevados.',
-  15.00, 40.00, 27.50,
-  'dificil', 1
-),
-(
-  'caballos',
-  'Superfecta',
-  'Predice los CUATRO primeros caballos EN EL ORDEN EXACTO de llegada. La apuesta más difícil y con el mayor premio posible en carreras.',
-  40.00, 100.00, 70.00,
-  'muy_dificil', 1
 );
 
 -- ============================================================

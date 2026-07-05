@@ -26,15 +26,9 @@ const DEPORTES_CONFIG = {
   },
   tenis: {
     url:      env.API_SPORTS_URL_TENIS,
-    key:      env.API_SPORTS_KEY,
-    endpoint: '/fixtures',
-    tipo:     'apisports',
-  },
-  caballos: {
-    url:      env.API_RACING_URL,
-    key:      env.API_RACING_KEY,
-    endpoint: '/racecards/free',
-    tipo:     'racing',
+    key:      env.API_TENNIS_KEY,       // ← key correcta
+    endpoint: '/matches',               // ← endpoint correcto
+    tipo:     'rapidapi',               // ← tipo correcto
   },
 };
 
@@ -49,36 +43,50 @@ function _normalizarApisports(f, deporte) {
   return traducirEvento({ api_evento_id, deporte, liga, equipoLocal, equipoVisit, fechaStr });
 }
 
-function _normalizarRacing(carrera) {
-  const api_evento_id = String(carrera.race_id ?? '');
-  const liga          = carrera.course ?? 'Hipódromo';
-  const runners       = carrera.runners ?? [];
-  const equipoLocal   = carrera.race_name ?? `Carrera`;
-  const equipoVisit   = runners.slice(0, 3).map(r => r.horse ?? r.name).join(', ') || 'Sin jinetes';
-  const fechaStr      = carrera.off_dt ?? null;
-  // Nota: carreras de caballos tienen nombres propios; traducirEvento aplica solo liga.
-  return traducirEvento({ api_evento_id, deporte: 'caballos', liga, equipoLocal, equipoVisit, fechaStr });
+function _normalizarTenis(f) {
+  const api_evento_id = String(f.event_key ?? f.id ?? '');
+  const liga          = f.tournament_name ?? f.league_name ?? 'Torneo';
+  const equipoLocal   = f.event_first_player  ?? f.home_player  ?? '';
+  const equipoVisit   = f.event_second_player ?? f.away_player  ?? '';
+  const fechaStr      = f.event_date
+    ? `${f.event_date}T${f.event_time ?? '00:00'}:00`
+    : null;
+  return traducirEvento({ api_evento_id, deporte: 'tenis', liga, equipoLocal, equipoVisit, fechaStr });
 }
 
 // ── Fetch por deporte ─────────────────────────────────────────────────────────
 
 async function _fetchDeporte(deporte, config) {
-  if (config.tipo === 'racing') {
-    const res = await axios.get(`${config.url}${config.endpoint}`, {
-      headers: { 'x-api-key': config.key },
-      timeout: 10000,
-    });
-    const carreras = res.data?.racecards ?? res.data ?? [];
-    return Array.isArray(carreras) ? carreras.map(_normalizarRacing) : [];
+  if (config.tipo === 'rapidapi') {
+    const todasLasFixtures = [];
+    for (let i = 0; i < 7; i++) {
+      const fecha = new Date();
+      fecha.setDate(fecha.getDate() + i);
+      const fechaStr = fecha.toISOString().split('T')[0];
+      try {
+        const res = await axios.get(`${config.url}${config.endpoint}`, {
+          headers: {
+            'x-rapidapi-key':  config.key,
+            'x-rapidapi-host': 'api-tennis.p.rapidapi.com',
+          },
+          params:  { date: fechaStr },
+          timeout: 10000,
+        });
+        const matches = res.data?.result ?? res.data?.response ?? [];
+        if (Array.isArray(matches)) todasLasFixtures.push(...matches);
+      } catch (err) {
+        console.warn(`[deportes/tenis] Error fecha ${fechaStr}:`, err.message);
+      }
+    }
+    return todasLasFixtures.map(_normalizarTenis);
   }
 
-  // Plan gratuito: consultar día por día (next no está disponible)
+  // apisports — consultar día por día
   const todasLasFixtures = [];
   for (let i = 0; i < 7; i++) {
     const fecha = new Date();
     fecha.setDate(fecha.getDate() + i);
     const fechaStr = fecha.toISOString().split('T')[0];
-
     try {
       const res = await axios.get(`${config.url}${config.endpoint}`, {
         headers: { 'x-apisports-key': config.key },
@@ -91,14 +99,12 @@ async function _fetchDeporte(deporte, config) {
       console.warn(`[deportes] Error fecha ${fechaStr}:`, err.message);
     }
   }
-
   return todasLasFixtures.map(f => _normalizarApisports(f, deporte));
 }
 
 // ── Auto-registro de torneos nuevos ──────────────────────────────────────────
 
 async function _registrarTorneosNuevos(deporte, eventos) {
-  // Recopilar ligas únicas del lote de eventos procesado
   const ligasUnicas = [...new Set(eventos.map(ev => ev.liga).filter(Boolean))];
   for (const liga of ligasUnicas) {
     await query(
@@ -143,7 +149,6 @@ async function sincronizarEventosSemana() {
         }
       }
 
-      // Auto-registrar ligas nuevas detectadas en este deporte
       await _registrarTorneosNuevos(deporte, eventos);
 
     } catch (err) {
@@ -174,7 +179,6 @@ async function actualizarResultados() {
     try {
       const config = DEPORTES_CONFIG[evento.deporte];
       if (!config) continue;
-      if (config.tipo === 'racing') continue;
 
       const res = await axios.get(`${config.url}${config.endpoint}`, {
         headers: { 'x-apisports-key': config.key },

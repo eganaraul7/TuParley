@@ -26,7 +26,7 @@ async function obtenerTasaActual() {
 async function actualizarTasaDesdeApi() {
   try {
     const res   = await axios.get(API_BCV_URL, { timeout: 8000 });
-    const valor = parseFloat(res.data?.USD ?? res.data?.dolar ?? res.data?.bcv ?? 0);
+    const valor = parseFloat(res.data?.promedio ?? res.data?.venta ?? res.data?.compra ?? 0);
 
     if (!valor) {
       await _notificarAdminBcv(

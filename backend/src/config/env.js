@@ -64,7 +64,7 @@ const env = {
   API_SPORTS_URL_BEISBOL  : process.env.API_SPORTS_URL_BEISBOL     || 'https://v1.baseball.api-sports.io',
 
   API_TENNIS_KEY            : process.env.API_TENNIS_KEY           || '7612a7c4c3mshf2a2e80991228d6p1b70f5jsn9014f92f9033',
-  API_SPORTS_URL_TENIS      : process.env.API_SPORTS_URL_TENIS     || 'rapidapi.com',
+  API_SPORTS_URL_TENIS: process.env.API_SPORTS_URL_TENIS           || 'https://api-tennis.p.rapidapi.com',
 
   API_RACING_KEY          : process.env.API_RACING_KEY             || '',
   API_RACING_URL          : process.env.API_RACING_URL             || '',
