@@ -39,6 +39,20 @@ async function arrancar() {
   bcvJob.iniciar(io);
   deportesJob.iniciar(io);
   caducidadJob.iniciar(io);
+  
+  // Sincronización inicial al arrancar
+  const deportesService = require('./src/services/deportes.service');
+  const bcvService      = require('./src/services/bcv.service');
+  setTimeout(async () => {
+    console.log('[server] → Sincronizando BCV inicial...');
+    const bcv = await bcvService.actualizarTasaDesdeApi();
+    console.log(`[server] BCV: ${bcv.exito ? bcv.valor + ' Bs/$' : 'falló – ' + bcv.motivo}`);
+
+    console.log('[server] → Sincronizando eventos iniciales...');
+    const r = await deportesService.sincronizarEventosSemana();
+    console.log(`[server] Eventos: ${r.creados} creados | ${r.actualizados} actualizados | ${r.errores.length} errores`);
+    if (r.errores.length) console.warn('[server] Errores:', r.errores);
+}, 2000);
 
   server.listen(PORT, () => {
     console.log(`[server] TuParley backend corriendo en puerto ${PORT}`);
