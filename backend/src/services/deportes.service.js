@@ -1,3 +1,7 @@
+// Nombre de archivo: deportes.service.js
+// Ruta: backend/src/services/deportes.service.js
+// Función: Sincroniza eventos deportivos desde APIs externas, resuelve tickets y actualiza resultados
+
 'use strict';
 const axios     = require('axios');
 const { query } = require('../config/db');
@@ -24,23 +28,38 @@ const DEPORTES_CONFIG = {
     endpoint: '/games',
     tipo:     'apisports',
   },
+  mma: {
+    url:      env.API_SPORTS_URL_MMA,
+    key:      env.API_SPORTS_KEY,
+    endpoint: '/fights',
+    tipo:     'apisports',
+  },
   tenis: {
     url:      env.API_SPORTS_URL_TENIS,
-    key:      env.API_TENNIS_KEY,       // ← key correcta
-    endpoint: '/matches',               // ← endpoint correcto
-    tipo:     'rapidapi',               // ← tipo correcto
+    key:      env.API_TENNIS_KEY,
+    endpoint: '/matches',
+    tipo:     'rapidapi',
   },
 };
 
 // ── Normalizadores ────────────────────────────────────────────────────────────
 
 function _normalizarApisports(f, deporte) {
-  const api_evento_id = String(f.fixture?.id ?? f.id ?? '');
+  const api_evento_id = String(f.fixture?.id ?? f.fight?.id ?? f.id ?? '');
   const liga          = f.league?.name ?? f.competition?.name ?? 'Liga';
-  const equipoLocal   = f.teams?.home?.name ?? '';
-  const equipoVisit   = f.teams?.away?.name ?? '';
-  const fechaStr      = f.fixture?.date ?? f.date ?? null;
+  const equipoLocal   = f.teams?.home?.name ?? f.fighters?.home?.name ?? '';
+  const equipoVisit   = f.teams?.away?.name ?? f.fighters?.away?.name ?? '';
+  const fechaStr      = f.fixture?.date ?? f.fight?.date ?? f.date ?? null;
   return traducirEvento({ api_evento_id, deporte, liga, equipoLocal, equipoVisit, fechaStr });
+}
+
+function _normalizarMMA(f) {
+  const api_evento_id = String(f.fight?.id ?? f.id ?? '');
+  const liga          = f.league?.name ?? f.event?.name ?? 'MMA';
+  const equipoLocal   = f.fighters?.home?.name ?? f.fighter_1?.name ?? '';
+  const equipoVisit   = f.fighters?.away?.name ?? f.fighter_2?.name ?? '';
+  const fechaStr      = f.fight?.date ?? f.date ?? null;
+  return traducirEvento({ api_evento_id, deporte: 'mma', liga, equipoLocal, equipoVisit, fechaStr });
 }
 
 function _normalizarTenis(f) {
@@ -96,9 +115,11 @@ async function _fetchDeporte(deporte, config) {
       const fixtures = res.data?.response ?? [];
       todasLasFixtures.push(...fixtures);
     } catch (err) {
-      console.warn(`[deportes] Error fecha ${fechaStr}:`, err.message);
+      console.warn(`[deportes/${deporte}] Error fecha ${fechaStr}:`, err.message);
     }
   }
+
+  if (deporte === 'mma') return todasLasFixtures.map(_normalizarMMA);
   return todasLasFixtures.map(f => _normalizarApisports(f, deporte));
 }
 
@@ -134,7 +155,8 @@ async function sincronizarEventosSemana() {
         );
         if (existe.length === 0) {
           await query(
-            `INSERT INTO eventos (api_evento_id, deporte, liga, equipo_local, equipo_visitante, fecha_inicio, estado, activo)
+            `INSERT INTO eventos
+              (api_evento_id, deporte, liga, equipo_local, equipo_visitante, fecha_inicio, estado, activo)
               VALUES (?,?,?,?,?,?,'programado',1)`,
             [api_evento_id, deporte, liga, equipoLocal, equipoVisit, fechaInicio]
           );
@@ -142,7 +164,7 @@ async function sincronizarEventosSemana() {
         } else {
           await query(
             `UPDATE eventos SET liga=?, equipo_local=?, equipo_visitante=?,
-                fecha_inicio=?, updated_at=NOW() WHERE api_evento_id=?`,
+              fecha_inicio=?, updated_at=NOW() WHERE api_evento_id=?`,
             [liga, equipoLocal, equipoVisit, fechaInicio, api_evento_id]
           );
           resultados.actualizados++;
@@ -158,7 +180,7 @@ async function sincronizarEventosSemana() {
   return resultados;
 }
 
-// ── Cierre automático de apuestas al iniciar el partido ──────────────────────
+// ── Cierre automático de apuestas al iniciar el evento ────────────────────────
 
 async function cerrarApuestasEventosIniciados() {
   const result = await query(
@@ -178,7 +200,7 @@ async function actualizarResultados() {
   for (const evento of eventosEnCurso) {
     try {
       const config = DEPORTES_CONFIG[evento.deporte];
-      if (!config) continue;
+      if (!config || config.tipo === 'rapidapi') continue;
 
       const res = await axios.get(`${config.url}${config.endpoint}`, {
         headers: { 'x-apisports-key': config.key },
@@ -189,11 +211,11 @@ async function actualizarResultados() {
       const f      = res.data?.response?.[0];
       if (!f) continue;
 
-      const status = f.fixture?.status?.short ?? f.status?.short ?? f.status ?? '';
+      const status = f.fixture?.status?.short ?? f.fight?.status?.short ?? f.status?.short ?? f.status ?? '';
       const golesH = f.goals?.home  ?? f.scores?.home?.total ?? f.score?.home ?? null;
       const golesA = f.goals?.away  ?? f.scores?.away?.total ?? f.score?.away ?? null;
 
-      if (['FT','AET','PEN','FIN','AOT'].includes(status)) {
+      if (['FT','AET','PEN','FIN','AOT','END'].includes(status)) {
         const resultado = golesH !== null ? `${golesH}-${golesA}` : 'FIN';
         await query(
           `UPDATE eventos SET estado='finalizado', resultado_final=?, updated_at=NOW() WHERE id=?`,
@@ -260,7 +282,9 @@ async function _resolverTicketsEvento(evento_id, resultado) {
 
 function _evaluarSeleccion(seleccion, resultado) {
   if (!resultado || resultado === 'FIN') return false;
-  const [gl, gv] = resultado.split('-').map(Number);
+  const partes = resultado.split('-').map(Number);
+  if (partes.length < 2 || partes.some(isNaN)) return false;
+  const [gl, gv] = partes;
   const s = String(seleccion).toLowerCase();
   if (s === '1' || s === 'local')     return gl > gv;
   if (s === '2' || s === 'visitante') return gv > gl;

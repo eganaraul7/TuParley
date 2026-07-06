@@ -7,7 +7,8 @@ const { query } = require('../config/db');
 async function listarNotificaciones(req, res) {
   const { rol } = req.usuario;
   const { leido, tipo, page = 1, limit = 50 } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const limitInt  = Math.max(1, parseInt(limit)  || 50);
+  const offsetInt = Math.max(0, (parseInt(page) - 1) * limitInt);
 
   try {
     let sql = `SELECT id, tipo, mensaje, leido, destinatario_rol,
@@ -19,8 +20,7 @@ async function listarNotificaciones(req, res) {
     if (leido !== undefined) { sql += ' AND leido = ?';  params.push(leido === 'true' ? 1 : 0); }
     if (tipo)                { sql += ' AND tipo = ?';   params.push(tipo); }
 
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), offset);
+    sql += ` ORDER BY created_at DESC LIMIT ${limitInt} OFFSET ${offsetInt}`;
 
     const notificaciones = await query(sql, params);
 
