@@ -61,7 +61,7 @@ export default function DashboardPage() {
 
   async function cargarContadores() {
     try {
-      const KEYS = ['futbol', 'baloncesto', 'beisbol', 'tenis'];
+      const KEYS = ['futbol', 'baloncesto', 'beisbol', 'mma', 'tenis'];
       const res  = await Promise.allSettled(
         KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' })),
       );
@@ -142,7 +142,6 @@ export default function DashboardPage() {
     };
   }
 
-  // Incluye local_id para tickets offline — necesario para actualizarModoOffline
   function _normalizarTicket(raw, gananciaUsd, gananciaBs, tasa) {
     return {
       id:                     raw.id       ?? null,
@@ -158,8 +157,6 @@ export default function DashboardPage() {
       selecciones,
     };
   }
-
-  // ── Crear ticket → abrir selector de modo ────────────────────────────────
 
   async function handleImprimir() {
     if (selecciones.length === 0 || montoUsd < APUESTA_MINIMA_USD) return;
@@ -201,14 +198,10 @@ export default function DashboardPage() {
     }
   }
 
-  // ── Registrar modo — online: PATCH server | offline: actualizar IDB ───────
-
   function _registrarModo(modo) {
     if (ticketCreado?.id) {
-      // Online: fire-and-forget al servidor
       ticketsService.actualizarModoImpresion(ticketCreado.id, modo).catch(() => {});
     } else if (ticketCreado?.local_id) {
-      // Offline: guardar en IndexedDB para que el sync lo incluya
       actualizarModoOffline(ticketCreado.local_id, modo).catch(() => {});
     }
   }
@@ -289,7 +282,6 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Toasts */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-40">
         {avisoOffline && (
           <div className="bg-[#1e293b] border border-[#f59e0b]/40 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-2.5">

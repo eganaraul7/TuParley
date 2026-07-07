@@ -58,7 +58,8 @@ INSERT IGNORE INTO categorias_config (deporte, activa, actualizado_por) VALUES
 ('futbol',      1, 1),
 ('baloncesto',  1, 1),
 ('beisbol',     1, 1),
-('tenis',       1, 1);
+('tenis',       1, 1),
+('mma',         1, 1);
 
 -- ============================================================
 -- 5. TASA BCV INICIAL (placeholder — se actualiza vía API)
@@ -187,7 +188,7 @@ INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuot
 );
 
 -- ============================================================
--- 10. MODALIDADES — TENIS (5)
+-- 9. MODALIDADES — TENIS (5)
 -- ============================================================
 INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
 (
@@ -224,6 +225,46 @@ INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuot
   'Predice el marcador exacto en sets del partido. Ejemplo: 2-0, 2-1 para formato al mejor de 3 sets. Alta dificultad con buen premio.',
   2.50, 5.00, 3.75,
   'dificil', 1
+);
+
+-- ============================================================
+-- 10. MODALIDADES — MMA (5)
+-- ============================================================
+INSERT IGNORE INTO modalidades (deporte, nombre, descripcion, cuota_minima, cuota_maxima, cuota_base, dificultad, activa) VALUES
+(
+  'mma',
+  'Ganador del combate',
+  'Apuesta simple: elige qué peleador ganará el combate por cualquier método (KO, sumisión, decisión). La apuesta más básica y frecuente en MMA.',
+  1.40, 1.70, 1.55,
+  'facil', 1
+),
+(
+  'mma',
+  'Método de victoria',
+  'Predice cómo terminará el combate: KO/TKO, Sumisión o Decisión de los jueces. Mayor dificultad que el ganador simple.',
+  1.80, 2.50, 2.10,
+  'media', 1
+),
+(
+  'mma',
+  'Over/Under rounds',
+  'Apuesta si el combate durará más (Over) o menos (Under) de una cantidad determinada de rounds. Ej: Over/Under 2.5 rounds.',
+  1.70, 2.20, 1.90,
+  'media', 1
+),
+(
+  'mma',
+  'Round exacto de finalización',
+  'Predice en qué round exacto terminará el combate. Alta dificultad con premios elevados.',
+  2.50, 5.00, 3.50,
+  'dificil', 1
+),
+(
+  'mma',
+  'Finalización en round específico',
+  'Predice tanto el ganador como el round exacto en que se producirá la victoria. La apuesta más difícil en MMA.',
+  4.00, 9.00, 6.50,
+  'muy_dificil', 1
 );
 
 SET foreign_key_checks = 1;

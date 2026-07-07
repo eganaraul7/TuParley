@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS tasa_bcv (
 -- TABLA: categorias_config
 -- ============================================================
 CREATE TABLE IF NOT EXISTS categorias_config (
-  deporte         ENUM('futbol','baloncesto','beisbol','tenis') NOT NULL,
+  deporte         ENUM('futbol','baloncesto','beisbol','mma','tenis') NOT NULL,
   activa          TINYINT(1)   NOT NULL DEFAULT 1,
   actualizado_por INT UNSIGNED NULL,
   updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS categorias_config (
 CREATE TABLE IF NOT EXISTS eventos (
   id               INT UNSIGNED  AUTO_INCREMENT,
   api_evento_id    VARCHAR(100)  NULL,
-  deporte          ENUM('futbol','baloncesto','beisbol','tenis') NOT NULL,
+  ENUM('futbol','baloncesto','beisbol','mma','tenis') NOT NULL,
   liga             VARCHAR(150)  NOT NULL,
   equipo_local     VARCHAR(150)  NOT NULL,
   equipo_visitante VARCHAR(150)  NOT NULL,
@@ -132,7 +132,7 @@ CREATE TABLE IF NOT EXISTS eventos (
 -- ============================================================
 CREATE TABLE IF NOT EXISTS modalidades (
   id           INT UNSIGNED AUTO_INCREMENT,
-  deporte      ENUM('futbol','baloncesto','beisbol','tenis') NOT NULL,
+  deporte      ENUM('futbol','baloncesto','beisbol','mma','tenis') NOT NULL,
   nombre       VARCHAR(100) NOT NULL,
   descripcion  TEXT         NOT NULL,
   cuota_minima DECIMAL(8,2) NOT NULL,
@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS estadisticas_mensuales (
   premios_pagados_usd         DECIMAL(12,2)     NOT NULL DEFAULT 0.00,
   recaudado_usd               DECIMAL(12,2)     NOT NULL DEFAULT 0.00,
   promedio_apuesta_usd        DECIMAL(10,2)     NOT NULL DEFAULT 0.00,
-  categoria_mas_jugada        ENUM('futbol','baloncesto','beisbol','tenis') NULL,
+  categoria_mas_jugada        ENUM('futbol','baloncesto','beisbol','mma','tenis') NULL,
   created_at                  DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at                  DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
