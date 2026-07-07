@@ -28,9 +28,9 @@ SELECT id, 1, 1 FROM bodegas;
 -- Registra si el ticket se emitió por impresora física o QR digital.
 -- NULL = ticket creado antes de esta migración.
 ALTER TABLE tickets
-  ADD COLUMN IF NOT EXISTS modo_impresion
-    ENUM('fisica', 'digital') NULL DEFAULT NULL
-    AFTER estado;
+  ADD COLUMN modo_impresion
+  ENUM('fisica', 'digital') NULL DEFAULT NULL
+  AFTER estado;
 
 -- ── Registro en schema_migrations ────────────────────────────────────────────
 INSERT IGNORE INTO schema_migrations (version) VALUES ('004_config_impresion_bodega');

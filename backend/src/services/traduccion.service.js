@@ -98,7 +98,7 @@ const LIGAS = {
   'NBA': 'NBA', 'National Basketball Association': 'NBA',
   'NBA - Playoffs': 'Playoffs NBA', 'NBA - Finals': 'Finales NBA',
   'EuroLeague': 'Euroliga', 'Euroleague': 'Euroliga', 'NCAA': 'NCAA',
-  'FIBA World Cup': 'Mundial FIBA',
+  'FIBA World Cup': 'Mundial FIBA', 'FIBA Basketball World Cup': 'Mundial de Baloncesto FIBA',
   'FIBA Basketball World Cup': 'Mundial de Básquetbol FIBA',
   'MLB': 'MLB', 'Major League Baseball': 'MLB',
   'MLB - Regular Season': 'Temporada Regular MLB',
@@ -116,7 +116,8 @@ const LIGAS = {
   'ONE Championship': 'ONE Championship',
   'PFL': 'PFL (Professional Fighters League)',
   'Professional Fighters League': 'PFL (Professional Fighters League)',
-  'MMA': 'MMA',
+  'MMA': 'MMA', 'Mixed Martial Arts': 'MMA', 'Boxing': 'Boxeo', 'WBC': 'WBC', 'WBA': 'WBA', 'IBF': 'IBF',
+  'WBO': 'WBO', 'The Ring': 'The Ring',
 };
 
 const EQUIPOS = {

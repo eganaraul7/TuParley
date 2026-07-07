@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS categorias_config (
 CREATE TABLE IF NOT EXISTS eventos (
   id               INT UNSIGNED  AUTO_INCREMENT,
   api_evento_id    VARCHAR(100)  NULL,
-  ENUM('futbol','baloncesto','beisbol','mma','tenis') NOT NULL,
+  deporte          ENUM('futbol','baloncesto','beisbol','mma','tenis') NOT NULL,
   liga             VARCHAR(150)  NOT NULL,
   equipo_local     VARCHAR(150)  NOT NULL,
   equipo_visitante VARCHAR(150)  NOT NULL,
