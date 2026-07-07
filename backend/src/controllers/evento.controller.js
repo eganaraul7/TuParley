@@ -1,3 +1,7 @@
+// Nombre de archivo: evento.controller.js
+// Ruta: backend/src/controllers/evento.controller.js
+// Función: Controlador de eventos deportivos — CRUD, activación, filtros y marcadores en vivo
+
 'use strict';
 
 const { query } = require('../config/db');
@@ -17,7 +21,7 @@ function _ip(req) {
   return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
 }
 
-const DEPORTES_VALIDOS = ['futbol', 'baloncesto', 'beisbol', 'tenis'];
+const DEPORTES_VALIDOS = ['futbol', 'baloncesto', 'beisbol', 'mma', 'tenis'];
 
 // ─── GET /api/eventos ─────────────────────────────────────────────────────────
 
@@ -30,8 +34,6 @@ async function listarEventos(req, res) {
     const fechaDesde = hoy.toISOString().slice(0, 19).replace('T', ' ');
     const fechaHasta = en7Dias.toISOString().slice(0, 19).replace('T', ' ');
 
-    // LEFT JOIN con torneos_config para respetar activo/inactivo por torneo.
-    // COALESCE(tc.activo, 1): si el torneo aún no está registrado → se muestra.
     let sql = `
       SELECT e.id, e.api_evento_id, e.deporte, e.liga,
              e.equipo_local, e.equipo_visitante, e.fecha_inicio,
@@ -116,7 +118,6 @@ async function crearEvento(req, res) {
       [api_evento_id ?? null, deporte, liga, equipo_local, equipo_visitante, fecha_inicio]
     );
 
-    // Auto-registrar el torneo si no existe
     await query(
       `INSERT IGNORE INTO torneos_config (deporte, nombre_liga, activo) VALUES (?, ?, 1)`,
       [deporte, liga]
@@ -162,7 +163,6 @@ async function actualizarEvento(req, res) {
     params.push(id);
     await query(`UPDATE eventos SET ${campos.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
 
-    // Si se cambia la liga, registrar el nuevo torneo
     if (liga) {
       await query(
         `INSERT IGNORE INTO torneos_config (deporte, nombre_liga, activo) VALUES (?, ?, 1)`,

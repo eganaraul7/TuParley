@@ -2,8 +2,7 @@
 
 // Nombre de archivo: traduccion.service.js
 // Ruta: backend/src/services/traduccion.service.js
-// Función: Mapeo Key-Value (EN→ES) para países, ligas y equipos recibidos
-//          de la API de deportes. Aplicar ANTES de persistir en BD.
+// Función: Mapeo Key-Value (EN→ES) para países, ligas y equipos recibidos de la API de deportes
 
 const PAISES = {
   'Afghanistan': 'Afganistán', 'Albania': 'Albania', 'Algeria': 'Argelia',
@@ -112,7 +111,12 @@ const LIGAS = {
   'Roland Garros': 'Roland Garros', 'US Open': 'US Open',
   'Australian Open': 'Abierto de Australia',
   'ATP Masters 1000': 'Masters 1000 ATP', 'ATP 500': 'ATP 500',
-  'ATP 250': 'ATP 250', 'Davis Cup': 'Copa Davis',
+  'ATP 250': 'ATP 250', 'Davis Cup': 'Copa Davis', 'UFC': 'UFC', 'Ultimate Fighting Championship': 'UFC',
+  'Bellator': 'Bellator MMA', 'Bellator MMA': 'Bellator MMA',
+  'ONE Championship': 'ONE Championship',
+  'PFL': 'PFL (Professional Fighters League)',
+  'Professional Fighters League': 'PFL (Professional Fighters League)',
+  'MMA': 'MMA',
 };
 
 const EQUIPOS = {

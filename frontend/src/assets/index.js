@@ -1,3 +1,7 @@
+// Nombre de archivo: index.js
+// Ruta: frontend/src/assets/index.js
+// Función: Barrel de assets — exporta logos, iconos de deportes y mapa dinámico SPORT_ICONS
+
 // Logos
 export { default as LogoTuParley } from './logos/tuparley-logo.svg?react';
 
@@ -5,6 +9,7 @@ export { default as LogoTuParley } from './logos/tuparley-logo.svg?react';
 export { default as IconFutbol }     from './icons/sports/futbol.svg?react';
 export { default as IconBaloncesto } from './icons/sports/baloncesto.svg?react';
 export { default as IconBeisbol }    from './icons/sports/beisbol.svg?react';
+export { default as IconMma }        from './icons/sports/mma.svg?react';
 export { default as IconTenis }      from './icons/sports/tenis.svg?react';
 
 // Mapa deporte → componente (útil para render dinámico)
@@ -12,11 +17,13 @@ export { default as IconTenis }      from './icons/sports/tenis.svg?react';
 import FutbolIcon     from './icons/sports/futbol.svg?react';
 import BaloncestoIcon from './icons/sports/baloncesto.svg?react';
 import BeisbolIcon    from './icons/sports/beisbol.svg?react';
+import MmaIcon        from './icons/sports/mma.svg?react';
 import TenisIcon      from './icons/sports/tenis.svg?react';
 
 export const SPORT_ICONS = {
   futbol:     FutbolIcon,
   baloncesto: BaloncestoIcon,
   beisbol:    BeisbolIcon,
+  mma:        MmaIcon,
   tenis:      TenisIcon,
 };
