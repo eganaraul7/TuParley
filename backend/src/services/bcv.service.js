@@ -8,10 +8,14 @@ const RANGO_MIN = parseFloat(BCV_RANGO_MINIMO ?? 100);
 const RANGO_MAX = parseFloat(BCV_RANGO_MAXIMO ?? 5000);
 
 async function _notificarAdminBcv(mensaje) {
-  await query(
-    `INSERT INTO notificaciones (tipo, mensaje, destinatario_rol) VALUES ('api_bcv_caida', ?, 'ambos')`,
-    [mensaje]
-  );
+  try {
+    await query(
+      `INSERT INTO notificaciones (tipo, mensaje, destinatario_rol) VALUES ('api_bcv_caida', ?, 'ambos')`,
+      [mensaje]
+    );
+  } catch (err) {
+    console.warn('[bcv.service] No se pudo insertar notificación:', err.message);
+  }
 }
 
 async function obtenerTasaActual() {
