@@ -1,12 +1,35 @@
 // Nombre de archivo: NavDeportes.jsx
 // Ruta: frontend/src/components/bodeguero/NavDeportes.jsx
-// Función: Columna de navegación vertical entre deportes. Indica el activo
+// Función: Columna de navegación vertical entre deportes. Solo muestra
+//          categorías activas según el panel admin. Indica el activo
 //          con borde izquierdo verde y fondo sutil. Contador de eventos.
 
-import { DEPORTES } from '../../utils/constants';
-import { SPORT_ICONS } from '../../assets';
+import { useEffect, useState } from 'react';
+import { DEPORTES }            from '../../utils/constants';
+import { SPORT_ICONS }         from '../../assets';
+import { eventosService }      from '../../services/eventosService';
 
-export default function NavDeportes({ deporteActivo, contadores, onSeleccionar }) {
+export default function NavDeportes({ deporteActivo, contadores, onSeleccionar, onCategoriasListas }) {
+  const [categoriasActivas, setCategoriasActivas] = useState([]);
+
+  useEffect(() => {
+    eventosService
+      .listarCategorias()
+      .then((res) => {
+        const activas = (res?.categorias ?? [])
+          .filter((c) => c.activa)
+          .map((c) => c.deporte);
+        setCategoriasActivas(activas);
+        onCategoriasListas?.(activas);
+      })
+      .catch(() => {
+        // Si falla, mostrar todos para no bloquear al bodeguero
+        setCategoriasActivas(DEPORTES.map((d) => d.key));
+      });
+  }, []);
+
+  const deportesFiltrados = DEPORTES.filter((d) => categoriasActivas.includes(d.key));
+
   return (
     <nav className="w-[18%] min-w-[120px] bg-[#1e293b] border-r border-white/5 flex flex-col py-4 gap-1 px-2 overflow-y-auto">
 
@@ -14,7 +37,7 @@ export default function NavDeportes({ deporteActivo, contadores, onSeleccionar }
         Deportes
       </p>
 
-      {DEPORTES.map(({ key, label }) => {
+      {deportesFiltrados.map(({ key, label }) => {
         const Icon     = SPORT_ICONS[key];
         const activo   = deporteActivo === key;
         const cantidad = contadores[key] ?? 0;
@@ -30,7 +53,6 @@ export default function NavDeportes({ deporteActivo, contadores, onSeleccionar }
                 : 'text-[#94a3b8] hover:bg-white/5 hover:text-white'}
             `}
           >
-            {/* Borde izquierdo activo */}
             {activo && (
               <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-[#10b981] rounded-r-full" />
             )}

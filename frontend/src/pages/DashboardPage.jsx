@@ -3,6 +3,7 @@
 // Función: Dashboard principal del bodeguero. Integra flujo dual de impresión:
 //          ModalImpresion elige modo (física/digital), ModalQR muestra el QR.
 //          El ticket se crea ANTES de mostrar el selector de modo.
+//          Solo muestra categorías activas según configuración del admin.
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -18,7 +19,7 @@ import {
   agregarTicket,
   actualizarModoOffline,
 } from '../services/offlineQueue';
-import { MAX_GANANCIA_USD, APUESTA_MINIMA_USD } from '../utils/constants';
+import { MAX_GANANCIA_USD, APUESTA_MINIMA_USD, DEPORTES } from '../utils/constants';
 
 import { BarraSuperior, NavDeportes, ColumnaEventos } from '../components/bodeguero';
 import { TicketSlip, ModalTicket, ModalImpresion, ModalQR } from '../components/ticket';
@@ -28,7 +29,8 @@ export default function DashboardPage() {
   const { usuario, clearAuth } = useAuthStore((s) => s);
   const tasaBcv                = useBcvStore((s) => s.tasaBcv);
 
-  const [deporteActivo,          setDeporteActivo]          = useState('futbol');
+  const [deporteActivo,          setDeporteActivo]          = useState(null);
+  const [categoriasActivas,      setCategoriasActivas]      = useState([]);
   const [selecciones,            setSelecciones]            = useState([]);
   const [montoUsd,               setMontoUsd]               = useState(0);
   const [imprimiendo,            setImprimiendo]            = useState(false);
@@ -40,12 +42,12 @@ export default function DashboardPage() {
   const [modalImpresionAbierto,  setModalImpresionAbierto]  = useState(false);
   const [modalQRAbierto,         setModalQRAbierto]         = useState(false);
 
-  useSocket('eventos_actualizados', cargarContadores);
+  useSocket('eventos_actualizados', () => cargarContadores(categoriasActivas));
   useSocket('mantenimiento', ({ activo }) => {
     if (activo) navigate('/login', { replace: true });
   });
 
-  useEffect(() => { cargarContadores(); }, []);
+  useEffect(() => { cargarContadores(categoriasActivas); }, [categoriasActivas]);
 
   useEffect(() => {
     if (!avisoOffline) return;
@@ -59,14 +61,23 @@ export default function DashboardPage() {
     return () => clearTimeout(t);
   }, [avisoSinImprimir]);
 
-  async function cargarContadores() {
+  function handleCategoriasListas(activas) {
+    setCategoriasActivas(activas);
+    // Seleccionar el primer deporte activo por defecto
+    if (activas.length > 0) {
+      const primero = DEPORTES.find((d) => activas.includes(d.key));
+      if (primero) setDeporteActivo(primero.key);
+    }
+  }
+
+  async function cargarContadores(keys = []) {
+    if (keys.length === 0) return;
     try {
-      const KEYS = ['futbol', 'baloncesto', 'beisbol', 'mma', 'tenis'];
-      const res  = await Promise.allSettled(
-        KEYS.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' })),
+      const res = await Promise.allSettled(
+        keys.map((dep) => eventosService.listar({ deporte: dep, estado: 'programado' })),
       );
       const map = {};
-      KEYS.forEach((dep, i) => {
+      keys.forEach((dep, i) => {
         map[dep] = res[i].status === 'fulfilled'
           ? (res[i].value?.total ?? res[i].value?.eventos?.length ?? 0)
           : 0;
@@ -263,13 +274,16 @@ export default function DashboardPage() {
           deporteActivo={deporteActivo}
           contadores={contadores}
           onSeleccionar={setDeporteActivo}
+          onCategoriasListas={handleCategoriasListas}
         />
-        <ColumnaEventos
-          deporte={deporteActivo}
-          seleccionesActivas={selecciones}
-          limiteAlcanzado={limiteAlcanzado}
-          onSeleccionar={handleSeleccionar}
-        />
+        {deporteActivo && (
+          <ColumnaEventos
+            deporte={deporteActivo}
+            seleccionesActivas={selecciones}
+            limiteAlcanzado={limiteAlcanzado}
+            onSeleccionar={handleSeleccionar}
+          />
+        )}
         <TicketSlip
           selecciones={selecciones}
           tasaBcv={tasaBcv}

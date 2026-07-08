@@ -37,7 +37,7 @@ const DEPORTES_CONFIG = {
   tenis: {
     url:      env.API_SPORTS_URL_TENIS,
     key:      env.API_TENNIS_KEY,
-    endpoint: '/matches',
+    endpoint: '/fixtures',   // ← era '/matches'
     tipo:     'rapidapi',
   },
 };
