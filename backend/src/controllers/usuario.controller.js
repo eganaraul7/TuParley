@@ -33,8 +33,8 @@ const ROLES_VALIDOS = ['computadora_madre', 'administrador', 'bodeguero', 'desco
 // ─── POST /api/usuarios ───────────────────────────────────────────────────────
 
 async function crearUsuario(req, res) {
-  const { nombre_usuario, contrasena, rol = 'desconocido', bodega_id = null } = req.body;
-  const ip = _ip(req);
+  const { nombre_usuario, contrasena, rol = 'desconocido', bodega_id: bodega_id_raw = null } = req.body;
+  const bodega_id = bodega_id_raw === '' ? null : bodega_id_raw;
 
   if (!nombre_usuario || !contrasena) {
     return res.status(400).json({ error: 'nombre_usuario y contrasena son requeridos' });
