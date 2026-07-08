@@ -12,7 +12,7 @@ const PAISES = {
   'Belarus': 'Bielorrusia', 'Belgium': 'Bélgica', 'Bolivia': 'Bolivia',
   'Bosnia and Herzegovina': 'Bosnia y Herzegovina', 'Bosnia': 'Bosnia',
   'Brazil': 'Brasil', 'Bulgaria': 'Bulgaria', 'Cameroon': 'Camerún',
-  'Canada': 'Canadá', 'Chile': 'Chile', 'China': 'China',
+  'Canada': 'Canadá', 'Chile': 'Chile', 'China': 'China', 
   'Colombia': 'Colombia', 'Costa Rica': 'Costa Rica', 'Croatia': 'Croacia',
   'Cuba': 'Cuba', 'Cyprus': 'Chipre', 'Czech Republic': 'República Checa',
   'Czechia': 'República Checa', 'Denmark': 'Dinamarca',
@@ -121,21 +121,21 @@ const LIGAS = {
 };
 
 const EQUIPOS = {
-  'Real Madrid': 'Real Madrid', 'FC Barcelona': 'FC Barcelona',
+  'Real Madrid': 'Real Madrid', 'FC Barcelona': 'FC Barcelona', 'Real Madrid CF': 'Real Madrid',
   'Barcelona': 'FC Barcelona', 'Manchester City': 'Manchester City',
   'Manchester United': 'Manchester United', 'Liverpool': 'Liverpool',
   'Arsenal': 'Arsenal', 'Chelsea': 'Chelsea', 'Tottenham': 'Tottenham',
   'Tottenham Hotspur': 'Tottenham', 'Bayern Munich': 'Bayern Múnich',
-  'FC Bayern München': 'Bayern Múnich',
+  'FC Bayern München': 'Bayern Múnich', 
   'Borussia Dortmund': 'Borussia Dortmund', 'Juventus': 'Juventus',
   'AC Milan': 'AC Milán', 'Inter Milan': 'Inter de Milán',
   'AS Roma': 'AS Roma', 'Napoli': 'Nápoles',
   'Paris Saint-Germain': 'PSG', 'Paris SG': 'PSG', 'PSG': 'PSG',
-  'Atletico Madrid': 'Atlético de Madrid',
+  'Atletico Madrid': 'Atlético de Madrid', 
   'Atlético Madrid': 'Atlético de Madrid', 'Sevilla': 'Sevilla',
   'Valencia': 'Valencia', 'Athletic Club': 'Athletic de Bilbao',
   'Ajax': 'Ajax', 'Porto': 'FC Porto', 'Benfica': 'Benfica',
-  'Celtic': 'Celtic', 'Rangers': 'Rangers',
+  'Celtic': 'Celtic', 'Rangers': 'Rangers', 
   'Boca Juniors': 'Boca Juniors', 'River Plate': 'River Plate',
   'Flamengo': 'Flamengo', 'Palmeiras': 'Palmeiras',
   'Club America': 'Club América', 'Chivas': 'Guadalajara',
@@ -147,7 +147,12 @@ const EQUIPOS = {
   'Uruguay': 'Uruguay', 'Colombia': 'Colombia', 'Chile': 'Chile',
   'Mexico': 'México', 'USA': 'EE.UU.', 'United States': 'Estados Unidos',
   'Japan': 'Japón', 'South Korea': 'Corea del Sur',
-  'Australia': 'Australia', 'Venezuela': 'Venezuela',
+  'Australia': 'Australia', 'Venezuela': 'Venezuela', 'Peru': 'Perú', 'Ecuador': 'Ecuador', 'Paraguay': 'Paraguay',
+  'Bolivia': 'Bolivia', 'Costa Rica': 'Costa Rica', 'Panama': 'Panamá',
+  'Honduras': 'Honduras', 'El Salvador': 'El Salvador',
+  'Nicaragua': 'Nicaragua', 'Guatemala': 'Guatemala', 'Jamaica': 'Jamaica',
+  'Dominican Republic': 'República Dominicana', 'Puerto Rico': 'Puerto Rico',
+  'Cuba': 'Cuba', 'Trinidad and Tobago': 'Trinidad y Tobago',
   'Los Angeles Lakers': 'Lakers', 'Golden State Warriors': 'Warriors',
   'Boston Celtics': 'Celtics', 'Miami Heat': 'Heat',
   'Chicago Bulls': 'Bulls', 'New York Knicks': 'Knicks',
@@ -160,7 +165,7 @@ const EQUIPOS = {
   'San Francisco Giants': 'Giants', 'San Diego Padres': 'Padres',
   'St. Louis Cardinals': 'Cardinals', 'Philadelphia Phillies': 'Phillies',
   'Toronto Blue Jays': 'Blue Jays', 'Washington Nationals': 'Nationals',
-  'New York Mets': 'Mets', 'Milwaukee Brewers': 'Brewers',
+  'New York Mets': 'Mets', 'Milwaukee Brewers': 'Brewers', 'Detroit Tigers': 'Tigers',
 };
 
 function _traducir(nombre, mapa) {
@@ -183,7 +188,11 @@ function traducirLiga(liga) {
 }
 
 function traducirEquipo(equipo) {
-  return _traducir(equipo, EQUIPOS);
+  if (!equipo) return equipo;
+  const limpio = equipo.trim();
+  if (EQUIPOS[limpio]) return EQUIPOS[limpio];
+  if (PAISES[limpio])  return PAISES[limpio];
+  return limpio;
 }
 
 function traducirEvento(evento) {
