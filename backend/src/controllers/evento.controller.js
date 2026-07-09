@@ -37,7 +37,7 @@ async function listarEventos(req, res) {
     let sql = `
       SELECT e.id, e.api_evento_id, e.deporte, e.liga,
              e.equipo_local, e.equipo_visitante, e.fecha_inicio,
-             e.estado, e.activo,
+             e.estado, e.activo, e.tipo_fase,
              cc.activa  AS categoria_activa,
              COALESCE(tc.activo, 1) AS torneo_activo
         FROM eventos e
@@ -101,7 +101,8 @@ async function obtenerEvento(req, res) {
 // ─── POST /api/eventos ────────────────────────────────────────────────────────
 
 async function crearEvento(req, res) {
-  const { deporte, liga, equipo_local, equipo_visitante, fecha_inicio, api_evento_id } = req.body;
+  const { deporte, liga, equipo_local, equipo_visitante, fecha_inicio, api_evento_id,
+          tipo_fase = 'amistoso' } = req.body;
   const ip = _ip(req);
 
   if (!deporte || !liga || !equipo_local || !equipo_visitante || !fecha_inicio) {
@@ -110,12 +111,16 @@ async function crearEvento(req, res) {
   if (!DEPORTES_VALIDOS.includes(deporte)) {
     return res.status(400).json({ error: `deporte inválido. Válidos: ${DEPORTES_VALIDOS.join(', ')}` });
   }
+  const FASES_VALIDAS = ['amistoso', 'fase_grupos', 'eliminatoria'];
+  if (!FASES_VALIDAS.includes(tipo_fase)) {
+    return res.status(400).json({ error: `tipo_fase inválido. Válidos: ${FASES_VALIDAS.join(', ')}` });
+  }
 
   try {
     const result = await query(
-      `INSERT INTO eventos (api_evento_id, deporte, liga, equipo_local, equipo_visitante, fecha_inicio, estado, activo)
-       VALUES (?,?,?,?,?,?,'programado',1)`,
-      [api_evento_id ?? null, deporte, liga, equipo_local, equipo_visitante, fecha_inicio]
+      `INSERT INTO eventos (api_evento_id, deporte, liga, equipo_local, equipo_visitante, fecha_inicio, tipo_fase, estado, activo)
+       VALUES (?,?,?,?,?,?,?,'programado',1)`,
+      [api_evento_id ?? null, deporte, liga, equipo_local, equipo_visitante, fecha_inicio, tipo_fase]
     );
 
     await query(
@@ -137,7 +142,8 @@ async function crearEvento(req, res) {
 
 async function actualizarEvento(req, res) {
   const { id } = req.params;
-  const { liga, equipo_local, equipo_visitante, fecha_inicio, estado, resultado_final } = req.body;
+  const { liga, equipo_local, equipo_visitante, fecha_inicio, estado,
+          resultado_final, tipo_fase } = req.body;
   const ip = _ip(req);
 
   try {
@@ -150,6 +156,13 @@ async function actualizarEvento(req, res) {
     if (equipo_visitante) { campos.push('equipo_visitante = ?'); params.push(equipo_visitante); }
     if (fecha_inicio)     { campos.push('fecha_inicio = ?');     params.push(fecha_inicio); }
     if (resultado_final)  { campos.push('resultado_final = ?');  params.push(resultado_final); }
+    if (tipo_fase) {
+      const fasesValidas = ['amistoso', 'fase_grupos', 'eliminatoria'];
+      if (!fasesValidas.includes(tipo_fase)) {
+        return res.status(400).json({ error: `tipo_fase inválido. Válidos: ${fasesValidas.join(', ')}` });
+      }
+      campos.push('tipo_fase = ?'); params.push(tipo_fase);
+    }
     if (estado) {
       const estadosValidos = ['programado', 'en_curso', 'finalizado', 'suspendido', 'cancelado'];
       if (!estadosValidos.includes(estado)) {
@@ -408,6 +421,53 @@ async function marcadoresEnVivo(req, res) {
   }
 }
 
+// ─── GET /api/eventos/cuotas-marcador/lista ───────────────────────────────────
+// Devuelve los multiplicadores de marcador exacto por deporte.
+// El frontend los usa para mostrar las opciones de marcador opcional.
+// Query param ?deporte=futbol para filtrar por deporte.
+
+async function listarCuotasMarcador(req, res) {
+  const { deporte } = req.query;
+  try {
+    let sql = `SELECT id, deporte, etiqueta, tipo_marcador,
+                      marcador_local, marcador_visitante, multiplicador
+                 FROM cuotas_marcador
+                WHERE activo = 1`;
+    const params = [];
+    if (deporte) { sql += ' AND deporte = ?'; params.push(deporte); }
+    sql += ' ORDER BY deporte, marcador_local ASC, marcador_visitante ASC';
+
+    const cuotas = await query(sql, params);
+    return res.status(200).json({ cuotas });
+  } catch (err) {
+    console.error('[evento.controller] listarCuotasMarcador:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+// ─── GET /api/eventos/cuotas-detalle/lista ────────────────────────────────────
+// Devuelve los multiplicadores de detalle de fin por deporte.
+// El frontend los usa para mostrar opciones de tiempo extra / penales / método MMA.
+// Query param ?deporte=futbol para filtrar por deporte.
+
+async function listarCuotasDetalle(req, res) {
+  const { deporte } = req.query;
+  try {
+    let sql = `SELECT id, deporte, tipo_detalle, descripcion, multiplicador
+                 FROM cuotas_detalle_fin
+                WHERE activo = 1`;
+    const params = [];
+    if (deporte) { sql += ' AND deporte = ?'; params.push(deporte); }
+    sql += ' ORDER BY deporte, tipo_detalle';
+
+    const cuotas = await query(sql, params);
+    return res.status(200).json({ cuotas });
+  } catch (err) {
+    console.error('[evento.controller] listarCuotasDetalle:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
 module.exports = {
   listarEventos,
   obtenerEvento,
@@ -422,4 +482,6 @@ module.exports = {
   toggleModalidad,
   actualizarCuotaModalidad,
   marcadoresEnVivo,
+  listarCuotasMarcador,
+  listarCuotasDetalle,
 };

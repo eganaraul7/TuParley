@@ -23,6 +23,12 @@ router.get  ('/modalidades/lista',            bodegueroOAdmin, ctrl.listarModali
 router.patch('/modalidades/:id/toggle',       soloAdmin,       ctrl.toggleModalidad);
 router.patch('/modalidades/:id/cuota',        soloAdmin,       ctrl.actualizarCuotaModalidad);
 
+// Cuotas de marcador exacto (por deporte, opcional ?deporte=futbol)
+router.get  ('/cuotas-marcador/lista',        bodegueroOAdmin, ctrl.listarCuotasMarcador);
+
+// Cuotas de detalle de fin (tiempo extra, penales, métodos MMA)
+router.get  ('/cuotas-detalle/lista',         bodegueroOAdmin, ctrl.listarCuotasDetalle);
+
 // ── CRUD eventos ─────────────────────────────────────────────────────────────
 router.get  ('/',            bodegueroOAdmin, ctrl.listarEventos);
 router.post ('/',            soloAdmin,       ctrl.crearEvento);
