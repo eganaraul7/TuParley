@@ -19,7 +19,14 @@ export default function TicketSlip({
   imprimiendo,
 }) {
   const cuotaCombinada = useMemo(
-    () => selecciones.reduce((acc, s) => acc * Number(s.cuota_aplicada), 1),
+    () => selecciones.reduce(
+      (acc, s) =>
+        acc *
+        Number(s.cuota_aplicada)      *
+        Number(s.cuota_marcador ?? 1) *
+        Number(s.cuota_detalle  ?? 1),
+      1,
+    ),
     [selecciones],
   );
 
@@ -42,6 +49,35 @@ export default function TicketSlip({
   const montoValido          = montoUsd >= APUESTA_MINIMA_USD;
   const puedeImprimir        = selecciones.length > 0 && montoValido;
   const mostrarAlertaLimite  = limiteAlcanzado && selecciones.length > 0;
+
+  // Cuota total de una selección = base × marcador × detalle
+  function cuotaTotalSel(sel) {
+    return (
+      Number(sel.cuota_aplicada)      *
+      Number(sel.cuota_marcador ?? 1) *
+      Number(sel.cuota_detalle  ?? 1)
+    );
+  }
+
+  // Etiqueta del marcador/detalle para mostrar en la tarjeta
+  // Ejemplos: "2-0", "6-10 pts", "KO", "1-1 · Penales"
+  const DETALLE_LABELS_SLIP = {
+    tiempo_extra: 'T. Extra', penales: 'Penales',
+    ko: 'KO', tko: 'TKO', sumision: 'Sumisión', decision: 'Decisión',
+  };
+  function labelMarcador(sel) {
+    const { deporte, marcador_local: ml, marcador_visitante: mv, detalle_fin } = sel;
+    const parts = [];
+    if (ml !== null && ml !== undefined && mv !== null && mv !== undefined) {
+      if (deporte === 'baloncesto') {
+        parts.push(Number(mv) >= 99 ? `${ml}+ pts` : `${ml}-${mv} pts`);
+      } else {
+        parts.push(`${ml}-${mv}`);
+      }
+    }
+    if (detalle_fin) parts.push(DETALLE_LABELS_SLIP[detalle_fin] ?? detalle_fin);
+    return parts.length ? parts.join(' · ') : null;
+  }
 
   function handleMontoChange(e) {
     const raw = e.target.value.replace(/[^0-9.]/g, '');
@@ -89,29 +125,48 @@ export default function TicketSlip({
             </p>
           </div>
         ) : (
-          selecciones.map((sel) => (
-            <div
-              key={`${sel.evento_id}-${sel.modalidad_id}`}
-              className="bg-[#0f172a] rounded-xl p-3 border border-white/5"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-white text-xs font-semibold truncate">{sel.equipos}</p>
-                  <p className="text-[#475569] text-[11px] mt-0.5 truncate">{sel.modalidad_nombre}</p>
-                  <p className="text-[#94a3b8] text-[11px]">{sel.seleccion}</p>
-                </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  <span className="text-[#10b981] text-base font-black">{fmtCuota(sel.cuota_aplicada)}</span>
-                  <button
-                    onClick={() => onRemoverSeleccion(sel.evento_id)}
-                    className="text-[#334155] hover:text-[#ef4444] transition"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+          selecciones.map((sel) => {
+            const ct      = cuotaTotalSel(sel);
+            const etiq    = labelMarcador(sel);
+            const hayBoost = ct > Number(sel.cuota_aplicada) + 0.001;
+            return (
+              <div
+                key={`${sel.evento_id}-${sel.modalidad_id}`}
+                className={`bg-[#0f172a] rounded-xl p-3 border transition-colors
+                  ${hayBoost ? 'border-[#10b981]/25' : 'border-white/5'}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  {/* Texto izquierda */}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[#64748b] text-[10px] truncate">{sel.equipos}</p>
+                    <p className="text-white text-xs font-bold mt-0.5 truncate">{sel.seleccion}</p>
+                    {etiq && (
+                      <p className="text-[#f59e0b] text-[10px] font-black mt-0.5">
+                        · {etiq}
+                      </p>
+                    )}
+                  </div>
+                  {/* Cuota + botón X */}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className="text-[#10b981] text-base font-black leading-none">
+                      ×{fmtCuota(ct)}
+                    </span>
+                    {hayBoost && (
+                      <span className="text-[9px] text-[#334155]">
+                        base ×{fmtCuota(sel.cuota_aplicada)}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => onRemoverSeleccion(sel.evento_id)}
+                      className="text-[#334155] hover:text-[#ef4444] transition mt-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
 
         {/* Alerta límite */}
