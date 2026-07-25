@@ -87,7 +87,14 @@ export default function DashboardPage() {
   }
 
   const cuotaCombinada = useMemo(
-    () => selecciones.reduce((acc, s) => acc * Number(s.cuota_aplicada), 1),
+    () => selecciones.reduce(
+      (acc, s) =>
+        acc *
+        Number(s.cuota_aplicada)  *
+        Number(s.cuota_marcador ?? 1) *
+        Number(s.cuota_detalle  ?? 1),
+      1,
+    ),
     [selecciones],
   );
 
@@ -99,13 +106,32 @@ export default function DashboardPage() {
   const limiteAlcanzado = gananciaPotencialUsd >= MAX_GANANCIA_USD;
 
   function _buildSeleccion(evento, modalidad) {
+    // Etiqueta del botón: nombre del equipo o "Empate"
+    const tipo = modalidad.tipo_resultado_btn ?? null;
+    const seleccionLabel =
+      tipo === 'local'     ? evento.equipo_local     :
+      tipo === 'visitante' ? evento.equipo_visitante :
+      tipo === 'empate'    ? 'Empate'                :
+      (modalidad.nombre_corto ?? modalidad.nombre);
+
     return {
-      evento_id:        evento.id,
-      modalidad_id:     modalidad.id,
-      equipos:          `${evento.equipo_local} vs ${evento.equipo_visitante}`,
-      modalidad_nombre: modalidad.nombre,
-      seleccion:        modalidad.nombre_corto ?? modalidad.nombre,
-      cuota_aplicada:   modalidad.cuota_base,
+      evento_id:          evento.id,
+      modalidad_id:       modalidad.id,
+      tipo_resultado:     tipo ?? 'no_aplica',
+      tipo_fase:          evento.tipo_fase ?? 'amistoso',
+      deporte:            evento.deporte,
+      equipos:            `${evento.equipo_local} vs ${evento.equipo_visitante}`,
+      equipo_local:       evento.equipo_local,
+      equipo_visitante:   evento.equipo_visitante,
+      modalidad_nombre:   seleccionLabel,
+      seleccion:          seleccionLabel,
+      cuota_aplicada:     modalidad.cuota_base,
+      // Marcador opcional — null = no eligió, cuotas en 1 = no multiplica
+      marcador_local:     null,
+      marcador_visitante: null,
+      detalle_fin:        null,
+      cuota_marcador:     1,
+      cuota_detalle:      1,
     };
   }
 
@@ -130,6 +156,13 @@ export default function DashboardPage() {
     setSelecciones((prev) => prev.filter((s) => s.evento_id !== evento_id));
   }
 
+  // Actualiza marcador/detalle de una selección existente sin reemplazarla
+  function handleActualizarMarcador(evento_id, datos) {
+    setSelecciones((prev) =>
+      prev.map((s) => s.evento_id === evento_id ? { ...s, ...datos } : s),
+    );
+  }
+
   function handleLimpiar() {
     setSelecciones([]);
     setMontoUsd(0);
@@ -138,10 +171,16 @@ export default function DashboardPage() {
   function _buildPayload(tasa, gananciaUsd, gananciaBs) {
     return {
       selecciones: selecciones.map((s) => ({
-        evento_id:      s.evento_id,
-        modalidad_id:   s.modalidad_id,
-        cuota_aplicada: s.cuota_aplicada,
-        seleccion:      s.seleccion,
+        evento_id:          s.evento_id,
+        modalidad_id:       s.modalidad_id,
+        tipo_resultado:     s.tipo_resultado     ?? 'no_aplica',
+        cuota_aplicada:     s.cuota_aplicada,
+        seleccion:          s.seleccion,
+        marcador_local:     s.marcador_local     ?? null,
+        marcador_visitante: s.marcador_visitante ?? null,
+        detalle_fin:        s.detalle_fin        ?? null,
+        cuota_marcador:     s.cuota_marcador     ?? 1,
+        cuota_detalle:      s.cuota_detalle      ?? 1,
       })),
       monto_apostado_usd:     montoUsd,
       monto_apostado_bs:      montoUsd * tasa,
@@ -282,6 +321,7 @@ export default function DashboardPage() {
             seleccionesActivas={selecciones}
             limiteAlcanzado={limiteAlcanzado}
             onSeleccionar={handleSeleccionar}
+            onActualizarMarcador={handleActualizarMarcador}
           />
         )}
         <TicketSlip

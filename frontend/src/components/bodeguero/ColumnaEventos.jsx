@@ -13,14 +13,17 @@ export default function ColumnaEventos({
   seleccionesActivas,
   limiteAlcanzado,
   onSeleccionar,
+  onActualizarMarcador,
 }) {
-  const [eventos,      setEventos]      = useState([]);
-  const [torneos,      setTorneos]      = useState([]);
-  const [modalidades,  setModalidades]  = useState([]);
-  const [cargando,     setCargando]     = useState(false);
-  const [error,        setError]        = useState('');
-  const [busqueda,     setBusqueda]     = useState('');
-  const [expandidos,   setExpandidos]   = useState({});   // { nombre_liga: boolean }
+  const [eventos,        setEventos]        = useState([]);
+  const [torneos,        setTorneos]        = useState([]);
+  const [modalidades,    setModalidades]    = useState([]);
+  const [cuotasMarcador, setCuotasMarcador] = useState([]);
+  const [cuotasDetalle,  setCuotasDetalle]  = useState([]);
+  const [cargando,       setCargando]       = useState(false);
+  const [error,          setError]          = useState('');
+  const [busqueda,       setBusqueda]       = useState('');
+  const [expandidos,     setExpandidos]     = useState({});   // { nombre_liga: boolean }
 
   useEffect(() => {
     setEventos([]);
@@ -34,19 +37,25 @@ export default function ColumnaEventos({
     setCargando(true);
     setError('');
     try {
-      const [evRes, torRes, modRes] = await Promise.all([
+      const [evRes, torRes, modRes, cmRes, cdRes] = await Promise.all([
         eventosService.listar({ deporte, limite: 100 }),
         eventosService.listarTorneos(deporte),
         eventosService.listarModalidades(deporte),
+        eventosService.listarCuotasMarcador(deporte),
+        eventosService.listarCuotasDetalle(deporte),
       ]);
 
       const evs  = evRes.eventos       ?? [];
       const tors = torRes.torneos      ?? [];
       const mods = modRes.modalidades  ?? [];
+      const cms  = cmRes.cuotas        ?? [];
+      const cds  = cdRes.cuotas        ?? [];
 
       setEventos(evs);
       setTorneos(tors);
       setModalidades(mods);
+      setCuotasMarcador(cms);
+      setCuotasDetalle(cds);
 
       // Expandir el primer torneo con eventos por defecto
       const ligasConEventos = [...new Set(evs.map((e) => e.liga))];
@@ -202,7 +211,10 @@ export default function ColumnaEventos({
                       modalidades={modalidades}
                       seleccionesActivas={seleccionesActivas}
                       limiteAlcanzado={limiteAlcanzado}
+                      cuotasMarcador={cuotasMarcador}
+                      cuotasDetalle={cuotasDetalle}
                       onSeleccionar={onSeleccionar}
+                      onActualizarMarcador={onActualizarMarcador}
                     />
                   ))}
                 </div>
