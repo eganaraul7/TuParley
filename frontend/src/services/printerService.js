@@ -35,18 +35,44 @@ const LINE         = '-'.repeat(32) + '\n';
 
 const DETALLE_IMPRESION = {
   tiempo_extra: 'Tiempo extra', penales: 'Penales',
-  ko: 'KO', tko: 'TKO', sumision: 'Sumision', decision: 'Decision',
+  ko: 'KO', tko: 'TKO', sumision: 'Sumisión', decision: 'Decisión',
 };
 
-// Las impresoras térmicas no traen UTF-8 y la página de códigos por defecto
-// (CP437) imprime basura con tildes/ñ: se convierte el texto a ASCII.
-function _ascii(texto) {
-  return String(texto ?? '')
+// Las impresoras térmicas no entienden UTF-8. Con tildes activadas se elige la
+// página de códigos CP850 (ESC t 2, la más soportada en impresoras de 58 mm) y
+// cada carácter se convierte a su byte; sin tildes, el texto se pasa a ASCII.
+// El modo se guarda por tablet (algunos modelos baratos no traen CP850).
+const CLAVE_TILDES = 'tuparley_impresora_tildes';
+const SELECT_CP850 = `${ESC}t\x02`;
+
+const CP850 = {
+  'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83, 'ä': 0x84, 'à': 0x85, 'ç': 0x87, 'ê': 0x88,
+  'ë': 0x89, 'è': 0x8A, 'ï': 0x8B, 'î': 0x8C, 'ì': 0x8D, 'Ä': 0x8E, 'É': 0x90, 'ô': 0x93,
+  'ö': 0x94, 'ò': 0x95, 'û': 0x96, 'ù': 0x97, 'Ö': 0x99, 'Ü': 0x9A, 'á': 0xA0, 'í': 0xA1,
+  'ó': 0xA2, 'ú': 0xA3, 'ñ': 0xA4, 'Ñ': 0xA5, 'ª': 0xA6, 'º': 0xA7, '¿': 0xA8, '¡': 0xAD,
+  'Á': 0xB5, 'Â': 0xB6, 'À': 0xB7, 'ã': 0xC6, 'Ã': 0xC7, 'Ê': 0xD2, 'Ë': 0xD3, 'È': 0xD4,
+  'Í': 0xD6, 'Î': 0xD7, 'Ï': 0xD8, 'Ì': 0xDE, 'Ó': 0xE0, 'Ô': 0xE2, 'Ò': 0xE3, 'õ': 0xE4,
+  'Õ': 0xE5, 'Ú': 0xE9, 'Û': 0xEA, 'Ù': 0xEB, '°': 0xF8,
+};
+
+function tildesActivas() {
+  try { return localStorage.getItem(CLAVE_TILDES) !== '0'; } catch { return true; }
+}
+
+function setTildes(activas) {
+  try { localStorage.setItem(CLAVE_TILDES, activas ? '1' : '0'); } catch { /* sin almacenamiento */ }
+}
+
+// Normaliza el texto dinámico (nombres, fechas) antes de imprimir
+function _texto(texto) {
+  const limpio = String(texto ?? '')
+    .normalize('NFC')
+    .replace(/[\u00a0\u2000-\u200b\u202f]/g, ' ');   // espacios especiales (p.ej. "a. m.")
+  if (tildesActivas()) return limpio;
+  return limpio
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/ñ/g, 'n').replace(/Ñ/g, 'N')
-    .replace(/[¿¡]/g, '')
-    .replace(/[\u00a0\u2000-\u200b\u202f]/g, ' ')
-    .replace(/[^\x20-\x7E\n]/g, '?');
+    .replace(/[¿¡]/g, '');
 }
 
 function _pad(left, right, width = 32) {
@@ -69,18 +95,19 @@ function generarComandosEscPos(ticket) {
 
   let cmds = '';
   cmds += INIT;
+  if (tildesActivas()) cmds += SELECT_CP850;
   cmds += ALIGN_CENTER;
   cmds += FONT_LARGE + BOLD_ON + 'TuParley\n' + BOLD_OFF + FONT_NORMAL;
-  cmds += `${_ascii(bodega_nombre ?? 'Bodega')}\n`;
+  cmds += `${_texto(bodega_nombre ?? 'Bodega')}\n`;
   cmds += LINE;
   cmds += ALIGN_LEFT;
-  cmds += `Fecha : ${_ascii(fecha)}\n`;
+  cmds += `Fecha : ${_texto(fecha)}\n`;
   cmds += `Serie : ${numero_serie}\n`;
   cmds += LINE;
 
   for (const sel of (selecciones ?? [])) {
-    cmds += BOLD_ON + `${_ascii(sel.equipos ?? `${sel.equipo_local ?? ''} vs ${sel.equipo_visitante ?? ''}`)}\n` + BOLD_OFF;
-    cmds += `  ${sel.seleccion === 'Empate' ? 'Resultado' : 'Gana'}: ${_ascii(sel.seleccion)}\n`;
+    cmds += BOLD_ON + `${_texto(sel.equipos ?? `${sel.equipo_local ?? ''} vs ${sel.equipo_visitante ?? ''}`)}\n` + BOLD_OFF;
+    cmds += `  ${sel.seleccion === 'Empate' ? 'Resultado' : 'Gana'}: ${_texto(sel.seleccion)}\n`;
     // Opcionales elegidos: marcador exacto / rango y detalle de fin
     const extras = [];
     if (sel.marcador_local !== null && sel.marcador_local !== undefined) {
@@ -89,7 +116,7 @@ function generarComandosEscPos(ticket) {
         : `Marcador ${sel.marcador_local}-${sel.marcador_visitante}`);
     }
     if (sel.detalle_fin) extras.push(DETALLE_IMPRESION[sel.detalle_fin] ?? sel.detalle_fin);
-    if (extras.length) cmds += `  ${extras.join(' / ')}\n`;
+    if (extras.length) cmds += `  ${_texto(extras.join(' / '))}\n`;
     const cuotaSel = Number(sel.cuota_aplicada) * Number(sel.cuota_marcador ?? 1) * Number(sel.cuota_detalle ?? 1);
     cmds += _pad('  Cuota:', `x${cuotaSel.toFixed(2)}`);
   }
@@ -114,8 +141,8 @@ function generarComandosEscPos(ticket) {
   cmds += '_______________________________\n';
   cmds += '\n';
   cmds += ALIGN_CENTER;
-  cmds += 'Premio valido 48h desde el\n';
-  cmds += 'resultado del ultimo evento.\n';
+  cmds += _texto('Premio válido 48h desde el') + '\n';
+  cmds += _texto('resultado del último evento.') + '\n';
   cmds += LINE;
   cmds += '\n\n\n';   // avance para que el corte no se coma el texto
   cmds += CUT;
@@ -124,18 +151,24 @@ function generarComandosEscPos(ticket) {
 }
 
 function generarPaginaPrueba(nombreImpresora) {
-  let cmds = INIT + ALIGN_CENTER + BOLD_ON + 'TuParley\n' + BOLD_OFF;
-  cmds += 'Prueba de impresion\n' + LINE + ALIGN_LEFT;
-  cmds += `Impresora: ${_ascii(nombreImpresora ?? '')}\n`;
-  cmds += `Fecha    : ${_ascii(new Date().toLocaleString('es-VE'))}\n`;
+  let cmds = INIT + (tildesActivas() ? SELECT_CP850 : '') + ALIGN_CENTER + BOLD_ON + 'TuParley\n' + BOLD_OFF;
+  cmds += _texto('Prueba de impresión') + '\n' + LINE + ALIGN_LEFT;
+  cmds += `Impresora: ${_texto(nombreImpresora ?? '')}\n`;
+  cmds += `Fecha    : ${_texto(new Date().toLocaleString('es-VE'))}\n`;
   cmds += _pad('Izquierda', 'Derecha');
-  cmds += LINE + ALIGN_CENTER + 'Si lees esto, la impresora\nesta lista.\n\n\n\n' + CUT;
+  cmds += _texto(tildesActivas() ? 'Tildes: áéíóú ÁÉÍÓÚ ñÑ ¿¡ ü' : 'Tildes: desactivadas') + '\n';
+  cmds += LINE + ALIGN_CENTER + _texto('Si las tildes se ven bien,\nla impresora está lista.') + '\n';
+  cmds += _texto('Si salen símbolos raros,\ndesactiva "Tildes y ñ".') + '\n\n\n\n' + CUT;
   return cmds;
 }
 
+// Convierte a bytes: ASCII tal cual, letras españolas a CP850, el resto a '?'
 function _stringToBytes(str) {
   const bytes = new Uint8Array(str.length);
-  for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xFF;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    bytes[i] = c < 0x80 ? c : (CP850[str[i]] ?? 0x3F);
+  }
   return bytes;
 }
 
@@ -306,4 +339,6 @@ export const printerService = {
   imprimirTicket,
   imprimirPrueba,
   generarComandosEscPos,
+  tildesActivas,
+  setTildes,
 };

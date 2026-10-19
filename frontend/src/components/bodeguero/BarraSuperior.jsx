@@ -82,6 +82,12 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
     printerService.reconectar().then(setEstadoImpresora).catch(() => {});
   }, []);
 
+  const [tildes, setTildesUI] = useState(() => printerService.tildesActivas());
+  function handleToggleTildes() {
+    printerService.setTildes(!tildes);
+    setTildesUI(!tildes);
+  }
+
   async function handleImprimirPrueba() {
     try {
       await printerService.imprimirPrueba();
@@ -206,6 +212,16 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
                 <Printer className="w-3.5 h-3.5 text-[#94a3b8]" /> Imprimir prueba
               </button>
             )}
+            <button
+              onClick={handleToggleTildes}
+              title="Desactívalo si la impresora imprime símbolos raros en lugar de tildes"
+              className="w-full flex items-center justify-between px-2 py-2 rounded-lg text-xs text-white hover:bg-white/5 transition"
+            >
+              <span>Tildes y ñ</span>
+              <span className={`text-[10px] font-bold ${tildes ? 'text-[#10b981]' : 'text-[#475569]'}`}>
+                {tildes ? 'SÍ' : 'NO'}
+              </span>
+            </button>
             {estadoImpresora.conectada && (
               <button
                 onClick={handleDesconectar}
