@@ -468,6 +468,15 @@ Las tablets deben estar en la misma red WiFi que tu computadora.
 
 Sigue los pasos de la sección 5 → *Probar desde una tablet en la misma WiFi*.
 
+### Impresora térmica (58 mm, ESC/POS)
+
+1. En el dashboard toca el ícono de impresora → **Conectar USB** o **Conectar Bluetooth**, y luego **Imprimir prueba**.
+2. **USB**: funciona directo en tablets Android con Chrome. En Windows, si dice que el sistema no permite usarla, instala el driver **WinUSB** para la impresora con [Zadig](https://zadig.akeo.ie) (o usa Bluetooth). Una vez autorizada, se reconecta sola al abrir la app.
+3. **Bluetooth**: solo impresoras **BLE**. Las de Bluetooth clásico (SPP) no son accesibles desde el navegador: úsalas por USB.
+4. Si un ticket no se imprimió, ábrelo en **Historial** y pulsa **Reimprimir**.
+5. Los textos se imprimen sin tildes ni ñ (las impresoras térmicas no traen UTF-8).
+6. El modo **Código QR** muestra el número de serie para que el cliente lo fotografíe. Los modos activos se configuran por bodega en el mismo menú.
+
 ### Actualización automática
 
 Cuando subas cambios al servidor, las tablets se actualizan solas al próximo acceso gracias al Service Worker. No necesitas reinstalar en cada tablet.

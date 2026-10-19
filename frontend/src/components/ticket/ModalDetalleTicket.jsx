@@ -7,7 +7,8 @@
 //          Extraído en el Paso 1 de reorganización components/.
 
 import { useState } from 'react';
-import { X, DollarSign, Loader2 } from 'lucide-react';
+import { X, DollarSign, Loader2, Printer } from 'lucide-react';
+import { printerService } from '../../services/printerService';
 import { fmtUsd, fmtBs, fmtCuota, fmtDt } from '../../utils/formatters';
 import { BADGE_ESTADO_TICKET } from '../../utils/constants';
 import { mensajeError } from '../../utils/errores';
@@ -17,6 +18,18 @@ export default function ModalDetalleTicket({ ticket, onCerrar, onPagar, onReembo
   const [pagando, setPagando]     = useState(false);
   const [moneda, setMoneda]       = useState(ticket.moneda_pago ?? 'USD');
   const [errorPago, setErrorPago] = useState('');
+
+  const [msgImpresion, setMsgImpresion] = useState('');
+
+  async function handleReimprimir() {
+    setMsgImpresion('');
+    try {
+      await printerService.imprimirTicket(ticket);
+      setMsgImpresion('Ticket enviado a la impresora.');
+    } catch (err) {
+      setMsgImpresion(err.message ?? 'No se pudo imprimir.');
+    }
+  }
 
   async function handleReembolsar() {
     if (!window.confirm(`¿Confirmas que entregaste ${fmtUsd(ticket.monto_apostado_usd)} (${ticket.moneda_pago}) al cliente?`)) return;
@@ -199,6 +212,19 @@ export default function ModalDetalleTicket({ ticket, onCerrar, onPagar, onReembo
                   Devolver dinero
                 </button>
               )}
+            </div>
+          )}
+
+          {/* reimpresión (copia del ticket) */}
+          {ticket.selecciones?.length > 0 && ['PENDIENTE', 'GANADO'].includes(ticket.estado) && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleReimprimir}
+                className="flex items-center gap-1.5 text-xs font-semibold text-[#94a3b8] hover:text-white border border-white/10 rounded-lg px-3 py-2 transition"
+              >
+                <Printer className="w-3.5 h-3.5" /> Reimprimir
+              </button>
+              {msgImpresion && <span className="text-[#94a3b8] text-[11px]">{msgImpresion}</span>}
             </div>
           )}
 
