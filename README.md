@@ -474,7 +474,7 @@ Sigue los pasos de la sección 5 → *Probar desde una tablet en la misma WiFi*.
 2. **USB**: funciona directo en tablets Android con Chrome. En Windows, si dice que el sistema no permite usarla, instala el driver **WinUSB** para la impresora con [Zadig](https://zadig.akeo.ie) (o usa Bluetooth). Una vez autorizada, se reconecta sola al abrir la app.
 3. **Bluetooth**: solo impresoras **BLE**. Las de Bluetooth clásico (SPP) no son accesibles desde el navegador: úsalas por USB.
 4. Si un ticket no se imprimió, ábrelo en **Historial** y pulsa **Reimprimir**.
-5. Los textos se imprimen sin tildes ni ñ (las impresoras térmicas no traen UTF-8).
+5. Tildes y ñ: se imprimen con la página de códigos CP850, la más común en impresoras de 58 mm. La **página de prueba** incluye una línea con tildes: si salen símbolos raros, desactiva **Tildes y ñ** en el menú de la impresora (se guarda por tablet) y el ticket se imprime sin tildes.
 6. El modo **Código QR** muestra el número de serie para que el cliente lo fotografíe. Los modos activos se configuran por bodega en el mismo menú.
 
 ### Actualización automática
