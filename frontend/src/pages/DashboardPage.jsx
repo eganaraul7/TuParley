@@ -20,6 +20,7 @@ import {
   actualizarModoOffline,
 } from '../services/offlineQueue';
 import { MAX_GANANCIA_USD, APUESTA_MINIMA_USD, DEPORTES } from '../utils/constants';
+import { mensajeError } from '../utils/errores';
 
 import { BarraSuperior, NavDeportes, ColumnaEventos } from '../components/bodeguero';
 import { TicketSlip, ModalTicket, ModalImpresion, ModalQR } from '../components/ticket';
@@ -36,6 +37,7 @@ export default function DashboardPage() {
   const [imprimiendo,            setImprimiendo]            = useState(false);
   const [avisoOffline,           setAvisoOffline]           = useState(false);
   const [avisoSinImprimir,       setAvisoSinImprimir]       = useState(false);
+  const [errorTicket,            setErrorTicket]            = useState('');
   const [serieBuscada,           setSerieBuscada]           = useState('');
   const [contadores,             setContadores]             = useState({});
   const [ticketCreado,           setTicketCreado]           = useState(null);
@@ -54,6 +56,12 @@ export default function DashboardPage() {
     const t = setTimeout(() => setAvisoOffline(false), 4000);
     return () => clearTimeout(t);
   }, [avisoOffline]);
+
+  useEffect(() => {
+    if (!errorTicket) return;
+    const t = setTimeout(() => setErrorTicket(''), 7000);
+    return () => clearTimeout(t);
+  }, [errorTicket]);
 
   useEffect(() => {
     if (!avisoSinImprimir) return;
@@ -210,9 +218,14 @@ export default function DashboardPage() {
 
   async function handleImprimir() {
     if (selecciones.length === 0 || montoUsd < APUESTA_MINIMA_USD) return;
+    if (!tasaBcv) {
+      setErrorTicket('No hay tasa BCV cargada. Pide al administrador que la registre.');
+      return;
+    }
     setImprimiendo(true);
+    setErrorTicket('');
 
-    const tasa        = Number(tasaBcv) || 1;
+    const tasa        = Number(tasaBcv);
     const gananciaUsd = Math.min(gananciaPotencialUsd, MAX_GANANCIA_USD);
     const gananciaBs  = gananciaUsd * tasa;
     const payload     = _buildPayload(tasa, gananciaUsd, gananciaBs);
@@ -232,7 +245,7 @@ export default function DashboardPage() {
             rawTicket = await agregarTicket(payload, usuario);
             setAvisoOffline(true);
           } else {
-            console.error('[DashboardPage] crearTicket:', err);
+            setErrorTicket(mensajeError(err, 'No se pudo crear el ticket.'));
             setImprimiendo(false);
             return;
           }
@@ -243,6 +256,7 @@ export default function DashboardPage() {
       setModalImpresionAbierto(true);
     } catch (err) {
       console.error('[DashboardPage] handleImprimir:', err);
+      setErrorTicket(mensajeError(err, 'No se pudo crear el ticket.'));
     } finally {
       setImprimiendo(false);
     }
@@ -337,6 +351,12 @@ export default function DashboardPage() {
       </div>
 
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-40">
+        {errorTicket && (
+          <div className="bg-[#1e293b] border border-[#ef4444]/40 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-2.5 max-w-[90vw]">
+            <AlertTriangle className="w-4 h-4 text-[#ef4444] shrink-0" />
+            <span className="text-white text-sm font-medium">{errorTicket}</span>
+          </div>
+        )}
         {avisoOffline && (
           <div className="bg-[#1e293b] border border-[#f59e0b]/40 rounded-xl px-4 py-3 shadow-2xl flex items-center gap-2.5">
             <WifiOff className="w-4 h-4 text-[#f59e0b] shrink-0" />

@@ -31,4 +31,5 @@ export const BADGE_ESTADO_TICKET = {
   ANULADO:          'bg-[#475569]/10 text-[#475569] border-[#475569]/30',
   SUSPENDIDO:       'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/30',
   CADUCADO_GANADOR: 'bg-[#6b7280]/10 text-[#6b7280] border-[#6b7280]/30',
+  REEMBOLSADO:      'bg-[#a855f7]/10 text-[#a855f7] border-[#a855f7]/30',
 };

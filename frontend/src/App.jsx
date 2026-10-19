@@ -86,7 +86,7 @@ function AppShell() {
 
   // mantener tasa BCV sincronizada en tiempo real para toda la app
   useSocket('bcv_actualizada', (payload) => {
-    if (payload?.valor) setTasaBcv(payload.valor, 'api');
+    if (payload?.valor) setTasaBcv(payload.valor, payload.fuente ?? 'api');
   });
 
   return (

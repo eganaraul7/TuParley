@@ -26,6 +26,12 @@ const pool = mysql.createPool({
   connectTimeout    : 10000,
 });
 
+// NOW()/CURDATE() deben operar en hora de Venezuela aunque el servidor MySQL
+// esté en UTC (p.ej. DigitalOcean Managed MySQL).
+pool.pool.on('connection', (conn) => {
+  conn.query("SET time_zone = '-04:00'");
+});
+
 /**
  * Wrapper de query con manejo de errores centralizado.
  * @param {string} sql

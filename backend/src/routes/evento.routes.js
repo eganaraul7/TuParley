@@ -29,11 +29,15 @@ router.get  ('/cuotas-marcador/lista',        bodegueroOAdmin, ctrl.listarCuotas
 // Cuotas de detalle de fin (tiempo extra, penales, métodos MMA)
 router.get  ('/cuotas-detalle/lista',         bodegueroOAdmin, ctrl.listarCuotasDetalle);
 
+// Resultados manuales
+router.get  ('/resultados/pendientes',        soloAdmin,       ctrl.listarPendientesResultado);
+
 // ── CRUD eventos ─────────────────────────────────────────────────────────────
 router.get  ('/',            bodegueroOAdmin, ctrl.listarEventos);
 router.post ('/',            soloAdmin,       ctrl.crearEvento);
 router.get  ('/:id',         bodegueroOAdmin, ctrl.obtenerEvento);
 router.put  ('/:id',         soloAdmin,       ctrl.actualizarEvento);
 router.patch('/:id/toggle',  soloAdmin,       ctrl.toggleEvento);
+router.patch('/:id/resultado', soloAdmin,     ctrl.registrarResultado);
 
 module.exports = router;

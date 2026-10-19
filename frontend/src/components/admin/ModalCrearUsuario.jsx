@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2, Plus } from 'lucide-react';
 import { usuariosService } from '../../services/usuariosService';
+import { mensajeError } from '../../utils/errores';
 
 const ROLES_ASIGNABLES = ['administrador', 'bodeguero', 'desconocido'];
 
@@ -36,7 +37,7 @@ export default function ModalCrearUsuario({ onCerrar }) {
     try {
       await usuariosService.crear(form);
       onCerrar();
-    } catch (err) { setError(err.response?.data?.mensaje ?? 'Error al crear usuario.'); }
+    } catch (err) { setError(mensajeError(err, 'Error al crear usuario.')); }
     finally { setCargando(false); }
   }
 

@@ -60,7 +60,7 @@ export const authService = {
 
   /**
    * setup2fa — generar secret + QR para habilitar 2FA por primera vez
-   * @returns {Promise<{ qr_url: string, secret: string }>}
+   * @returns {Promise<{ otpauth_url: string, secret: string }>}
    */
   async setup2fa() {
     const { data } = await api.post('/auth/setup-2fa');
@@ -72,7 +72,7 @@ export const authService = {
    * @param {{ codigo_totp: string }} payload
    */
   async confirmarSetup2fa({ codigo_totp }) {
-    const { data } = await api.post('/auth/verify-2fa', { codigo_totp });
+    const { data } = await api.post('/auth/verify-2fa', { totp_code: codigo_totp });
     return data;
   },
 

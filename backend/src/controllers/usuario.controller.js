@@ -3,6 +3,7 @@
 const bcrypt = require('bcrypt');
 const { query } = require('../config/db');
 const { delCache, KEYS } = require('../config/redis');
+const { hoyVET }         = require('../utils/fecha');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -23,11 +24,24 @@ async function _notificar(tipo, mensaje, destinatario_rol, referencia_id, refere
   );
 }
 
+// req.ip ya considera X-Forwarded-For solo desde proxies de confianza (app.set('trust proxy'))
 function _ip(req) {
-  return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  return req.ip || '';
 }
 
 const ROLES_ADMIN   = ['computadora_madre', 'administrador'];
+
+// Solo la computadora madre puede gestionar a la computadora madre
+function _puedeGestionar(actor, objetivo) {
+  return !(objetivo.rol === 'computadora_madre' && actor.rol !== 'computadora_madre');
+}
+const DENEGADO_MADRE = { error: 'Solo la computadora madre puede gestionar esta cuenta' };
+
+// Cierra la sesión activa del usuario (bloqueo, cambio de rol o de contraseña)
+async function _cerrarSesion(usuarioId) {
+  await query(`UPDATE usuarios SET sesion_activa = 0 WHERE id = ?`, [usuarioId]);
+  await delCache(KEYS.sesion(Number(usuarioId)));
+}
 const ROLES_VALIDOS = ['computadora_madre', 'administrador', 'bodeguero', 'desconocido'];
 
 // ─── POST /api/usuarios ───────────────────────────────────────────────────────
@@ -35,6 +49,7 @@ const ROLES_VALIDOS = ['computadora_madre', 'administrador', 'bodeguero', 'desco
 async function crearUsuario(req, res) {
   const { nombre_usuario, contrasena, rol = 'desconocido', bodega_id: bodega_id_raw = null } = req.body;
   const bodega_id = bodega_id_raw === '' ? null : bodega_id_raw;
+  const ip = _ip(req);
 
   if (!nombre_usuario || !contrasena) {
     return res.status(400).json({ error: 'nombre_usuario y contrasena son requeridos' });
@@ -150,8 +165,9 @@ async function actualizarUsuario(req, res) {
   const ip = _ip(req);
 
   try {
-    const rows = await query(`SELECT id, rol FROM usuarios WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(`SELECT id, rol, bodega_id FROM usuarios WHERE id = ? LIMIT 1`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (!_puedeGestionar(req.usuario, rows[0])) return res.status(403).json(DENEGADO_MADRE);
 
     const campos = [];
     const params = [];
@@ -162,13 +178,20 @@ async function actualizarUsuario(req, res) {
       campos.push('nombre_usuario = ?'); params.push(nombre_usuario);
     }
     if (bodega_id !== undefined) {
-      campos.push('bodega_id = ?'); params.push(bodega_id);
+      const nuevaBodega = bodega_id === '' ? null : bodega_id;
+      if (nuevaBodega !== null) {
+        const bodega = await query(`SELECT id FROM bodegas WHERE id = ? AND activa = 1 LIMIT 1`, [nuevaBodega]);
+        if (bodega.length === 0) return res.status(404).json({ error: 'Bodega no encontrada o inactiva' });
+      }
+      campos.push('bodega_id = ?'); params.push(nuevaBodega);
     }
 
     if (campos.length === 0) return res.status(400).json({ error: 'Nada que actualizar' });
 
     params.push(id);
     await query(`UPDATE usuarios SET ${campos.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
+    // El token lleva nombre y bodega: se fuerza un nuevo login para que se actualicen
+    if (Number(id) !== req.usuario.id) await _cerrarSesion(id);
     await _log(req.usuario.id, 'actualizar_usuario', 'usuarios', Number(id),
       { nombre_usuario, bodega_id }, ip);
 
@@ -199,6 +222,7 @@ async function asignarRol(req, res) {
   try {
     const rows = await query(`SELECT id, nombre_usuario, rol FROM usuarios WHERE id = ? LIMIT 1`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (!_puedeGestionar(req.usuario, rows[0])) return res.status(403).json(DENEGADO_MADRE);
 
     const rolAnterior = rows[0].rol;
 
@@ -213,6 +237,7 @@ async function asignarRol(req, res) {
     params.push(id);
 
     await query(sql, params);
+    await _cerrarSesion(id);
     await _log(req.usuario.id, 'asignar_rol', 'usuarios', Number(id),
       { rol_anterior: rolAnterior, rol_nuevo: rol, bodega_id }, ip);
 
@@ -242,6 +267,7 @@ async function bloquearUsuario(req, res) {
     }
 
     await query(`UPDATE usuarios SET bloqueado = 1, updated_at = NOW() WHERE id = ?`, [id]);
+    await _cerrarSesion(id);
     await _log(req.usuario.id, 'bloquear_usuario', 'usuarios', Number(id),
       { nombre_usuario: rows[0].nombre_usuario }, ip);
 
@@ -259,8 +285,9 @@ async function desbloquearUsuario(req, res) {
   const ip = _ip(req);
 
   try {
-    const rows = await query(`SELECT id, nombre_usuario FROM usuarios WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(`SELECT id, nombre_usuario, rol FROM usuarios WHERE id = ? LIMIT 1`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (!_puedeGestionar(req.usuario, rows[0])) return res.status(403).json(DENEGADO_MADRE);
 
     await query(
       `UPDATE usuarios SET bloqueado = 0, intentos_fallidos = 0, updated_at = NOW() WHERE id = ?`,
@@ -290,11 +317,13 @@ async function resetContrasena(req, res) {
   }
 
   try {
-    const rows = await query(`SELECT id, nombre_usuario FROM usuarios WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(`SELECT id, nombre_usuario, rol FROM usuarios WHERE id = ? LIMIT 1`, [id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (!_puedeGestionar(req.usuario, rows[0])) return res.status(403).json(DENEGADO_MADRE);
 
     const nuevoHash = await bcrypt.hash(contrasena_nueva, 12);
-    await query(`UPDATE usuarios SET contrasena_hash = ?, updated_at = NOW() WHERE id = ?`, [nuevoHash, id]);
+    await query(`UPDATE usuarios SET contrasena_hash = ?, intentos_fallidos = 0, updated_at = NOW() WHERE id = ?`, [nuevoHash, id]);
+    if (Number(id) !== req.usuario.id) await _cerrarSesion(id);
     await _log(req.usuario.id, 'reset_contrasena', 'usuarios', Number(id),
       { nombre_usuario: rows[0].nombre_usuario }, ip);
 
@@ -331,6 +360,10 @@ async function eliminarUsuario(req, res) {
 
     return res.status(200).json({ mensaje: 'Usuario eliminado' });
   } catch (err) {
+    // Tiene tickets, pagos o cierres asociados: borrarlo rompería el historial
+    if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.code === 'ER_ROW_IS_REFERENCED') {
+      return res.status(409).json({ error: 'El usuario tiene operaciones registradas y no se puede eliminar. Bloquéalo en su lugar.' });
+    }
     console.error('[usuario.controller] eliminarUsuario:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
@@ -364,7 +397,7 @@ async function listarSolicitudesReingreso(req, res) {
 
 async function responderSolicitudReingreso(req, res) {
   const { id } = req.params;
-  const { decision } = req.body; // 'aprobada' | 'rechazada'
+  const decision = req.body?.decision ?? req.body?.estado; // 'aprobada' | 'rechazada'
   const ip = _ip(req);
 
   if (!['aprobada', 'rechazada'].includes(decision)) {
@@ -390,13 +423,18 @@ async function responderSolicitudReingreso(req, res) {
       [decision, req.usuario.id, id]
     );
 
-    // Si se aprueba, resetear el cierre de caja de hoy para que pueda ingresar
+    // Si se aprueba, el cierre de hoy se archiva completo en auditoria_logs y se
+    // retira para que el bodeguero pueda volver a operar y cerrar de nuevo
+    // (el nuevo cierre recalcula los totales de todo el día).
     if (decision === 'aprobada') {
-      const hoy = new Date().toISOString().split('T')[0];
-      await query(
-        `DELETE FROM cierre_caja WHERE usuario_id = ? AND fecha = ?`,
-        [rows[0].usuario_id, hoy]
+      const hoy = hoyVET();
+      const cierres = await query(
+        `SELECT * FROM cierre_caja WHERE usuario_id = ? AND fecha = ?`, [rows[0].usuario_id, hoy]
       );
+      for (const cierre of cierres) {
+        await _log(req.usuario.id, 'cierre_caja_archivado', 'cierre_caja', cierre.id, cierre, ip);
+        await query(`DELETE FROM cierre_caja WHERE id = ?`, [cierre.id]);
+      }
     }
 
     await _log(req.usuario.id, `reingreso_${decision}`, 'solicitudes_reingreso', Number(id),

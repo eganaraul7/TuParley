@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { X, Loader2, AlertTriangle } from 'lucide-react';
 import { ticketsService } from '../../services/ticketsService';
+import { mensajeError } from '../../utils/errores';
 
 export default function SolicitudAnulacion({ ticketId }) {
   const [motivo, setMotivo]     = useState('');
@@ -23,7 +24,7 @@ export default function SolicitudAnulacion({ ticketId }) {
       await ticketsService.solicitarAnulacion(ticketId, motivo.trim());
       setEnviado(true);
     } catch (err) {
-      setError(err.response?.data?.mensaje || 'Error al enviar solicitud.');
+      setError(mensajeError(err, 'Error al enviar solicitud.'));
     } finally {
       setEnviando(false);
     }

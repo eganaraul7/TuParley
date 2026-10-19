@@ -5,6 +5,7 @@
 'use strict';
 
 const { query } = require('../config/db');
+const { liquidarEvento, suspenderEvento } = require('../services/liquidacion.service');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,7 @@ async function _log(usuarioId, accion, entidad_afectada, entidad_id, detalle, ip
 }
 
 function _ip(req) {
-  return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  return req.ip || '';
 }
 
 const DEPORTES_VALIDOS = ['futbol', 'baloncesto', 'beisbol', 'mma', 'tenis'];
@@ -29,11 +30,8 @@ async function listarEventos(req, res) {
   const { deporte, liga, equipo, fecha, estado } = req.query;
 
   try {
-    const hoy        = new Date();
-    const en7Dias    = new Date(hoy.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const fechaDesde = hoy.toISOString().slice(0, 19).replace('T', ' ');
-    const fechaHasta = en7Dias.toISOString().slice(0, 19).replace('T', ' ');
-
+    // Ventana calculada por MySQL (sesión en -04:00) para no mezclar UTC con VET.
+    // Sin filtro de estado (vista del bodeguero) solo se listan eventos aún no iniciados.
     let sql = `
       SELECT e.id, e.api_evento_id, e.deporte, e.liga,
              e.equipo_local, e.equipo_visitante, e.fecha_inicio,
@@ -44,8 +42,9 @@ async function listarEventos(req, res) {
         JOIN categorias_config cc ON cc.deporte = e.deporte
         LEFT JOIN torneos_config tc
                ON tc.deporte = e.deporte AND tc.nombre_liga = e.liga
-       WHERE e.fecha_inicio BETWEEN ? AND ?`;
-    const params = [fechaDesde, fechaHasta];
+       WHERE e.fecha_inicio <= NOW() + INTERVAL 7 DAY
+         AND e.fecha_inicio ${estado ? '>= NOW() - INTERVAL 2 DAY' : '> NOW()'}`;
+    const params = [];
 
     if (deporte) { sql += ' AND e.deporte = ?';                                              params.push(deporte); }
     if (liga)    { sql += ' AND e.liga LIKE ?';                                              params.push(`%${liga}%`); }
@@ -176,6 +175,12 @@ async function actualizarEvento(req, res) {
     params.push(id);
     await query(`UPDATE eventos SET ${campos.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
 
+    // Suspender/cancelar deja los tickets pendientes en SUSPENDIDO (devolución a pedido);
+    // finalizar dispara la liquidación con el resultado guardado.
+    let liquidacion = null;
+    if (estado === 'suspendido' || estado === 'cancelado') await suspenderEvento(Number(id), estado);
+    if (estado === 'finalizado') liquidacion = await liquidarEvento(Number(id));
+
     if (liga) {
       await query(
         `INSERT IGNORE INTO torneos_config (deporte, nombre_liga, activo) VALUES (?, ?, 1)`,
@@ -185,7 +190,7 @@ async function actualizarEvento(req, res) {
 
     await _log(req.usuario.id, 'actualizar_evento', 'eventos', Number(id), req.body, ip);
 
-    return res.status(200).json({ mensaje: 'Evento actualizado' });
+    return res.status(200).json({ mensaje: 'Evento actualizado', liquidacion });
   } catch (err) {
     console.error('[evento.controller] actualizarEvento:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
@@ -338,7 +343,7 @@ async function listarModalidades(req, res) {
   const { deporte, activa } = req.query;
   try {
     let sql = `SELECT id, deporte, nombre, descripcion, cuota_base, cuota_minima,
-                      cuota_maxima, dificultad, activa FROM modalidades WHERE 1=1`;
+                      cuota_maxima, dificultad, activa, tipo_resultado_btn FROM modalidades WHERE 1=1`;
     const params = [];
     if (deporte) { sql += ' AND deporte = ?'; params.push(deporte); }
     if (activa !== undefined) { sql += ' AND activa = ?'; params.push(activa === 'true' ? 1 : 0); }
@@ -468,6 +473,89 @@ async function listarCuotasDetalle(req, res) {
   }
 }
 
+// ─── GET /api/eventos/resultados/pendientes ──────────────────────────────────
+// Eventos que necesitan resultado: en curso que ya deberían haber terminado
+// o finalizados con selecciones que no se pudieron liquidar automáticamente.
+
+async function listarPendientesResultado(req, res) {
+  try {
+    const eventos = await query(
+      `SELECT e.id, e.deporte, e.liga, e.equipo_local, e.equipo_visitante, e.fecha_inicio,
+              e.estado, e.tipo_fase, e.resultado_final, e.ganador_final, e.detalle_fin_final,
+              (SELECT COUNT(*) FROM selecciones_ticket st JOIN tickets t ON t.id = st.ticket_id
+                WHERE st.evento_id = e.id AND st.resultado = 'pendiente' AND t.estado = 'PENDIENTE') AS selecciones_pendientes
+         FROM eventos e
+        WHERE (e.estado = 'en_curso' AND e.fecha_inicio <= NOW() - INTERVAL 90 MINUTE)
+           OR (e.estado = 'finalizado' AND EXISTS (
+                 SELECT 1 FROM selecciones_ticket st JOIN tickets t ON t.id = st.ticket_id
+                  WHERE st.evento_id = e.id AND st.resultado = 'pendiente' AND t.estado = 'PENDIENTE'))
+        ORDER BY e.fecha_inicio ASC
+        LIMIT 200`
+    );
+    return res.status(200).json({ eventos });
+  } catch (err) {
+    console.error('[evento.controller] listarPendientesResultado:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+// ─── PATCH /api/eventos/:id/resultado ────────────────────────────────────────
+// Registro manual del resultado (tenis, MMA, o cuando la API no lo trae).
+// Body: { marcador_local?, marcador_visitante?, ganador?, detalle_fin? }
+//   fútbol: marcador al final del tiempo reglamentario; detalle_fin tiempo_extra|penales si aplica
+//   tenis: sets ganados por cada jugador · MMA: ganador y método (ko|tko|sumision|decision)
+
+const GANADORES = ['local', 'empate', 'visitante'];
+const DETALLES  = { futbol: ['tiempo_extra', 'penales'], mma: ['ko', 'tko', 'sumision', 'decision'] };
+
+async function registrarResultado(req, res) {
+  const { id } = req.params;
+  const ip = _ip(req);
+  const { ganador = null, detalle_fin = null } = req.body ?? {};
+  const ml = req.body?.marcador_local;
+  const mv = req.body?.marcador_visitante;
+
+  try {
+    const [evento] = await query(`SELECT id, deporte, estado, fecha_inicio <= NOW() AS iniciado FROM eventos WHERE id = ? LIMIT 1`, [id]);
+    if (!evento) return res.status(404).json({ error: 'Evento no encontrado' });
+    if (['suspendido', 'cancelado'].includes(evento.estado))
+      return res.status(409).json({ error: `El evento está ${evento.estado}` });
+    if (!evento.iniciado) return res.status(409).json({ error: 'El evento aún no ha comenzado' });
+
+    const tieneMarcador = ml !== undefined && ml !== null && ml !== '' && mv !== undefined && mv !== null && mv !== '';
+    const gl = tieneMarcador ? Number(ml) : null;
+    const gv = tieneMarcador ? Number(mv) : null;
+    if (tieneMarcador && (!Number.isInteger(gl) || !Number.isInteger(gv) || gl < 0 || gv < 0 || gl > 250 || gv > 250))
+      return res.status(400).json({ error: 'Marcador inválido' });
+    if (ganador !== null && !GANADORES.includes(ganador))
+      return res.status(400).json({ error: `ganador inválido. Válidos: ${GANADORES.join(', ')}` });
+    if (!tieneMarcador && !ganador)
+      return res.status(400).json({ error: 'Indica el marcador o el ganador' });
+    if (detalle_fin !== null && !(DETALLES[evento.deporte] ?? []).includes(detalle_fin))
+      return res.status(400).json({ error: 'detalle_fin no válido para este deporte' });
+
+    const ganadorMarcador = tieneMarcador ? (gl > gv ? 'local' : gl < gv ? 'visitante' : 'empate') : null;
+    if (ganador && ganadorMarcador && ganador !== ganadorMarcador)
+      return res.status(400).json({ error: 'El ganador no coincide con el marcador' });
+
+    await query(
+      `UPDATE eventos SET estado = 'finalizado', resultado_final = ?, ganador_final = ?,
+              detalle_fin_final = ?, updated_at = NOW()
+        WHERE id = ?`,
+      [tieneMarcador ? `${gl}-${gv}` : null, ganador ?? ganadorMarcador, detalle_fin, id]
+    );
+    const liquidacion = await liquidarEvento(Number(id));
+    await _log(req.usuario.id, 'registrar_resultado', 'eventos', Number(id),
+      { marcador: tieneMarcador ? `${gl}-${gv}` : null, ganador: ganador ?? ganadorMarcador, detalle_fin, liquidacion }, ip);
+
+    req.app.get('io')?.emitirTodos('tickets_actualizados', { evento_id: Number(id) });
+    return res.status(200).json({ mensaje: 'Resultado registrado', liquidacion });
+  } catch (err) {
+    console.error('[evento.controller] registrarResultado:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
 module.exports = {
   listarEventos,
   obtenerEvento,
@@ -484,4 +572,6 @@ module.exports = {
   marcadoresEnVivo,
   listarCuotasMarcador,
   listarCuotasDetalle,
+  listarPendientesResultado,
+  registrarResultado,
 };

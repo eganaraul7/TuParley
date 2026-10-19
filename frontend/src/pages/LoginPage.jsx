@@ -4,6 +4,7 @@ import { Eye, EyeOff, Lock, User, ShieldCheck, AlertCircle, Loader2 } from 'luci
 import { useAuthStore } from '../store/authStore';
 import { authService } from '../services/authService';
 import { rutaPorRol } from '../utils/roles';
+import { mensajeError } from '../utils/errores';
 
 // ─── constantes ────────────────────────────────────────────────────────────────
 const STEP = { CREDENTIALS: 'credentials', TOTP: 'totp' };
@@ -29,7 +30,9 @@ export default function LoginPage() {
   const totpRefs = useRef([]);
 
   useEffect(() => {
-    if (isLoggedIn) navigate('/dashboard', { replace: true });
+    // Cada rol a su pantalla (antes enviaba a todos a /dashboard y pisaba la
+    // navegación de handleLogin, dejando a los administradores fuera de /admin)
+    if (isLoggedIn) navigate(rutaPorRol(useAuthStore.getState().usuario?.rol), { replace: true });
   }, [isLoggedIn, navigate]);
 
   // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -70,7 +73,7 @@ export default function LoginPage() {
         setError('Cuenta bloqueada. Contacta al administrador.');
       } else {
         if (typeof restantes === 'number') setIntentosRestantes(restantes);
-        setError(data.mensaje || 'Error de conexión.');
+        setError(mensajeError(err, 'Error de conexión.'));
       }
     } finally {
       setCargando(false);
@@ -115,7 +118,7 @@ export default function LoginPage() {
       setAuth(res.token, res.usuario);
       navigate(rutaPorRol(res.usuario.rol), { replace: true });
     } catch (err) {
-      const msg = err.response?.data?.mensaje || 'Código incorrecto.';
+      const msg = mensajeError(err, 'Código incorrecto.');
       setError(msg);
       setCodigoTotp(['', '', '', '', '', '']);
       totpRefs.current[0]?.focus();

@@ -112,11 +112,11 @@ export const usuariosService = {
   /**
    * responderReingreso
    * @param {number} id
-   * @param {'aprobada'|'rechazada'} estado
-   * @returns {Promise<{ solicitud: object }>}
+   * @param {'aprobada'|'rechazada'} decision
+   * @returns {Promise<{ mensaje: string }>}
    */
-  async responderReingreso(id, estado) {
-    const { data } = await api.patch(`/usuarios/solicitudes-reingreso/${id}`, { estado });
+  async responderReingreso(id, decision) {
+    const { data } = await api.patch(`/usuarios/solicitudes-reingreso/${id}`, { decision });
     return data;
   },
 };

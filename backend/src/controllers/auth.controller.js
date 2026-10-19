@@ -9,6 +9,7 @@ const speakeasy = require('speakeasy');
 const { query }                         = require('../config/db');
 const { setCache, getCache, delCache, KEYS, TTL } = require('../config/redis');
 const { JWT_SECRET, JWT_EXPIRES_IN }    = require('../config/env');
+const { hoyVET, minutosDelDiaVET }      = require('../utils/fecha');
 
 async function _logAuditoria(usuarioId, accion, entidad_afectada, entidad_id, detalle, ip) {
   await query(
@@ -27,11 +28,13 @@ async function _crearNotificacion(tipo, mensaje, destinatario_rol, referencia_id
   );
 }
 
+// req.ip ya considera X-Forwarded-For solo desde proxies de confianza (app.set('trust proxy'))
 function _obtenerIp(req) {
-  return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  return req.ip || '';
 }
 
 const MAX_INTENTOS = 5;
+const BLOQUEO_MADRE_MIN = 15;
 const ROLES_ADMIN  = ['computadora_madre', 'administrador'];
 
 const TEMP_TOKEN_TTL = '5m';
@@ -53,14 +56,12 @@ async function _finalizarLogin(usuario, ip, res) {
     return res.status(503).json({ error: 'Sistema en mantenimiento.', mantenimiento: true });
 
   if (usuario.rol === 'bodeguero') {
-    const ahora   = new Date();
-    const minutos = ahora.getHours() * 60 + ahora.getMinutes();
-    if (minutos < 300)
+    if (minutosDelDiaVET() < 300)
       return res.status(403).json({ error: 'Sistema no disponible hasta las 5:00 AM.', horario_bloqueado: true });
   }
 
   if (usuario.rol === 'bodeguero') {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyVET();
     const cierres = await query(
       `SELECT id FROM cierre_caja WHERE usuario_id = ? AND fecha = ? LIMIT 1`, [usuario.id, hoy]
     );
@@ -76,7 +77,7 @@ async function _finalizarLogin(usuario, ip, res) {
           `INSERT INTO solicitudes_reingreso (usuario_id, hora_solicitud, estado) VALUES (?,?,'pendiente')`,
           [usuario.id, ahoraISO]
         );
-        const horaStr = ahoraISO.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+        const horaStr = ahoraISO.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Caracas' });
         await _crearNotificacion('solicitud_reingreso',
           `"${usuario.nombre_usuario}" desea reingresar a las ${horaStr}. ¿Permite acceso? [Sí] / [No]`,
           'ambos', usuario.id, 'usuarios');
@@ -143,10 +144,22 @@ async function login(req, res) {
     if (usuario.bloqueado)
       return res.status(403).json({ error: 'Usuario bloqueado. Contacta al administrador.', bloqueado: true });
 
+    // La computadora madre no puede quedar bloqueada de forma permanente por
+    // intentos ajenos (nadie podría desbloquearla): recibe un bloqueo temporal.
+    const esMadre = usuario.rol === 'computadora_madre';
+    if (esMadre && await getCache(KEYS.bloqueado(usuario.id)))
+      return res.status(429).json({ error: `Demasiados intentos fallidos. Espera ${BLOQUEO_MADRE_MIN} minutos.` });
+
     const passwordValida = await bcrypt.compare(contrasena, usuario.contrasena_hash);
 
     if (!passwordValida) {
       const nuevosIntentos = (usuario.intentos_fallidos || 0) + 1;
+      if (esMadre && nuevosIntentos >= MAX_INTENTOS) {
+        await query(`UPDATE usuarios SET intentos_fallidos = 0 WHERE id = ?`, [usuario.id]);
+        await setCache(KEYS.bloqueado(usuario.id), '1', BLOQUEO_MADRE_MIN * 60);
+        await _logAuditoria(usuario.id, 'login_bloqueo_temporal', 'usuarios', usuario.id, { intentos: nuevosIntentos }, ip);
+        return res.status(429).json({ error: `Demasiados intentos fallidos. Espera ${BLOQUEO_MADRE_MIN} minutos.` });
+      }
       if (nuevosIntentos >= MAX_INTENTOS) {
         await query(`UPDATE usuarios SET bloqueado = 1, intentos_fallidos = ? WHERE id = ?`, [nuevosIntentos, usuario.id]);
         await setCache(KEYS.bloqueado(usuario.id), '1', TTL.INTENTOS);
@@ -238,7 +251,13 @@ async function logout(req, res) {
 // ─── GET /api/auth/me ────────────────────────────────────────────────────────
 
 async function me(req, res) {
-  return res.status(200).json({ usuario: req.usuario });
+  try {
+    const [extra] = await query(`SELECT totp_habilitado FROM usuarios WHERE id = ? LIMIT 1`, [req.usuario.id]);
+    return res.status(200).json({ usuario: { ...req.usuario, totp_habilitado: extra?.totp_habilitado === 1 } });
+  } catch (err) {
+    console.error('[auth.controller] me:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
 }
 
 // ─── POST /api/auth/setup-2fa ────────────────────────────────────────────────
@@ -248,6 +267,10 @@ async function setup2fa(req, res) {
   if (!ROLES_ADMIN.includes(rol))
     return res.status(403).json({ error: 'Solo administradores pueden configurar 2FA' });
   try {
+    // Regenerar el secreto con 2FA ya activo invalidaría el autenticador del usuario
+    const [actual] = await query(`SELECT totp_habilitado FROM usuarios WHERE id = ? LIMIT 1`, [usuarioId]);
+    if (actual?.totp_habilitado) return res.status(409).json({ error: '2FA ya está habilitado para esta cuenta' });
+
     const secret = speakeasy.generateSecret({ name: `TuParley:${nombre_usuario}`, length: 20 });
     await query(`UPDATE usuarios SET totp_secret = ? WHERE id = ?`, [secret.base32, usuarioId]);
     await _logAuditoria(usuarioId, '2fa_setup_iniciado', 'usuarios', usuarioId, null, _obtenerIp(req));
@@ -265,7 +288,7 @@ async function setup2fa(req, res) {
 
 async function verify2fa(req, res) {
   const { id: usuarioId, rol } = req.usuario;
-  const { totp_code } = req.body;
+  const totp_code = req.body?.totp_code ?? req.body?.codigo_totp;
   if (!ROLES_ADMIN.includes(rol))
     return res.status(403).json({ error: 'Solo administradores pueden verificar 2FA' });
   if (!totp_code) return res.status(400).json({ error: 'Código requerido' });

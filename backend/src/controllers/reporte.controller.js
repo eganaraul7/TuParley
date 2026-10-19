@@ -12,9 +12,10 @@ const {
   calcularMetricasPorBodega,
   guardarEstadisticasMensuales,
 } = require('../services/reporte.service');
+const { hoyVET, rangoSemanaVET, rangoMes, mesActualVET } = require('../utils/fecha');
 
 async function reporteDiario(req, res) {
-  const { fecha = new Date().toISOString().split('T')[0], bodega_id } = req.query;
+  const { fecha = hoyVET(), bodega_id } = req.query;
   try {
     const global  = await calcularMetricas(fecha, fecha, bodega_id ?? null);
     const bodegas = bodega_id ? null : await calcularMetricasPorBodega(fecha, fecha);
@@ -26,11 +27,9 @@ async function reporteDiario(req, res) {
 }
 
 async function reporteSemanal(req, res) {
-  const hoy = new Date();
-  const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - hoy.getDay() + 1);
-  const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6);
-  const fechaDesde = req.query.fecha_inicio ?? lunes.toISOString().split('T')[0];
-  const fechaHasta = req.query.fecha_fin    ?? domingo.toISOString().split('T')[0];
+  const semana = rangoSemanaVET();
+  const fechaDesde = req.query.fecha_inicio ?? semana.desde;
+  const fechaHasta = req.query.fecha_fin    ?? semana.hasta;
   const { bodega_id } = req.query;
   try {
     const global  = await calcularMetricas(fechaDesde, fechaHasta, bodega_id ?? null);
@@ -43,12 +42,11 @@ async function reporteSemanal(req, res) {
 }
 
 async function reporteMensual(req, res) {
-  const ahora = new Date();
-  const mes   = parseInt(req.query.mes  ?? ahora.getMonth() + 1);
-  const anio  = parseInt(req.query.anio ?? ahora.getFullYear());
+  const actual = mesActualVET();
+  const mes   = parseInt(req.query.mes  ?? actual.mes);
+  const anio  = parseInt(req.query.anio ?? actual.anio);
   const { bodega_id } = req.query;
-  const fechaDesde = `${anio}-${String(mes).padStart(2, '0')}-01`;
-  const fechaHasta = new Date(anio, mes, 0).toISOString().split('T')[0];
+  const { desde: fechaDesde, hasta: fechaHasta } = rangoMes(mes, anio);
   try {
     const global  = await calcularMetricas(fechaDesde, fechaHasta, bodega_id ?? null);
     const bodegas = bodega_id ? null : await calcularMetricasPorBodega(fechaDesde, fechaHasta);
@@ -88,22 +86,21 @@ function _calcularRangoExport(tipo, q) {
   const ahora = new Date();
   switch (tipo) {
     case 'diario': {
-      const fecha = q.fecha ?? ahora.toISOString().split('T')[0];
+      const fecha = q.fecha ?? hoyVET();
       return { fechaDesde: fecha, fechaHasta: fecha, etiqueta: fecha, archivo: fecha };
     }
     case 'semanal': {
-      const lunes = new Date(ahora); lunes.setDate(ahora.getDate() - ahora.getDay() + 1);
-      const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6);
-      const fechaDesde = q.fecha_inicio ?? lunes.toISOString().split('T')[0];
-      const fechaHasta = q.fecha_fin    ?? domingo.toISOString().split('T')[0];
+      const semana = rangoSemanaVET();
+      const fechaDesde = q.fecha_inicio ?? semana.desde;
+      const fechaHasta = q.fecha_fin    ?? semana.hasta;
       return { fechaDesde, fechaHasta, etiqueta: `Semana del ${fechaDesde} al ${fechaHasta}`, archivo: fechaDesde };
     }
     case 'mensual':
     default: {
-      const mes  = parseInt(q.mes  ?? ahora.getMonth() + 1);
-      const anio = parseInt(q.anio ?? ahora.getFullYear());
-      const fechaDesde = `${anio}-${String(mes).padStart(2, '0')}-01`;
-      const fechaHasta = new Date(anio, mes, 0).toISOString().split('T')[0];
+      const actual = mesActualVET(ahora);
+      const mes  = parseInt(q.mes  ?? actual.mes);
+      const anio = parseInt(q.anio ?? actual.anio);
+      const { desde: fechaDesde, hasta: fechaHasta } = rangoMes(mes, anio);
       const nombreMes  = new Date(anio, mes - 1).toLocaleString('es-VE', { month: 'long' });
       return { fechaDesde, fechaHasta, etiqueta: `${nombreMes} ${anio}`, archivo: `${anio}-${String(mes).padStart(2, '0')}` };
     }

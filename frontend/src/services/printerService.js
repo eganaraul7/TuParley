@@ -25,6 +25,12 @@ const FONT_NORMAL  = `${GS}!\x00`;
 const CUT          = `${GS}V\x41\x00`;
 const LINE         = '-'.repeat(32) + '\n';
 
+
+const DETALLE_IMPRESION = {
+  tiempo_extra: 'Tiempo extra', penales: 'Penales',
+  ko: 'KO', tko: 'TKO', sumision: 'Sumision', decision: 'Decision',
+};
+
 function _pad(left, right, width = 32) {
   const espacios = width - left.length - right.length;
   return left + ' '.repeat(Math.max(1, espacios)) + right + '\n';
@@ -56,8 +62,18 @@ function generarComandosEscPos(ticket) {
 
   for (const sel of (selecciones ?? [])) {
     cmds += BOLD_ON + `${sel.equipos ?? `${sel.equipo_local ?? ''} vs ${sel.equipo_visitante ?? ''}`}\n` + BOLD_OFF;
-    cmds += `  ${sel.modalidad_nombre ?? ''}: ${sel.seleccion}\n`;
-    cmds += _pad('  Cuota:', `x${Number(sel.cuota_aplicada).toFixed(2)}`);
+    cmds += `  Gana: ${sel.seleccion}\n`;
+    // Opcionales elegidos: marcador exacto / rango y detalle de fin
+    const extras = [];
+    if (sel.marcador_local !== null && sel.marcador_local !== undefined) {
+      extras.push(sel.deporte === 'baloncesto'
+        ? `Dif. ${sel.marcador_local}${Number(sel.marcador_visitante) >= 99 ? '+' : `-${sel.marcador_visitante}`} pts`
+        : `Marcador ${sel.marcador_local}-${sel.marcador_visitante}`);
+    }
+    if (sel.detalle_fin) extras.push(DETALLE_IMPRESION[sel.detalle_fin] ?? sel.detalle_fin);
+    if (extras.length) cmds += `  ${extras.join(' / ')}\n`;
+    const cuotaSel = Number(sel.cuota_aplicada) * Number(sel.cuota_marcador ?? 1) * Number(sel.cuota_detalle ?? 1);
+    cmds += _pad('  Cuota:', `x${cuotaSel.toFixed(2)}`);
   }
 
   cmds += LINE;

@@ -15,6 +15,7 @@ import { cierreCajaService } from '../services/cierreCajaService';
 import { authService }       from '../services/authService';
 import { fmtUsd, fmtBs, fmtHora } from '../utils/formatters';
 import { KpiCard, ModalConfirmarContrasena } from '../components/common';
+import { mensajeError } from '../utils/errores';
 
 export default function CierreCajaPage() {
   const navigate               = useNavigate();
@@ -81,7 +82,7 @@ export default function CierreCajaPage() {
       setCerrado(true);
       setModalAbierto(false);
     } catch (err) {
-      const msg = err.response?.data?.mensaje ?? 'Error al cerrar sesión.';
+      const msg = mensajeError(err, 'Error al cerrar sesión.');
       if (msg.toLowerCase().includes('contraseña')) {
         setErrorModal('Contraseña incorrecta.');
       } else {

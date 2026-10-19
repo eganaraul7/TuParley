@@ -1,6 +1,18 @@
 'use strict';
 const { query } = require('../config/db');
 
+// Reparto de ganancias configurable por admin (configuracion_sistema)
+async function _porcentajes() {
+  const rows = await query(
+    `SELECT clave, valor FROM configuracion_sistema WHERE clave IN ('porcentaje_bodeguero','porcentaje_operador')`
+  );
+  const cfg = Object.fromEntries(rows.map((r) => [r.clave, parseFloat(r.valor)]));
+  return {
+    bodeguero: (Number.isFinite(cfg.porcentaje_bodeguero) ? cfg.porcentaje_bodeguero : 20) / 100,
+    operador:  (Number.isFinite(cfg.porcentaje_operador)  ? cfg.porcentaje_operador  : 80) / 100,
+  };
+}
+
 async function calcularMetricas(fechaDesde, fechaHasta, bodega_id = null) {
   let where = 'WHERE DATE(t.fecha_creacion) BETWEEN ? AND ?';
   const params = [fechaDesde, fechaHasta];
@@ -43,14 +55,15 @@ async function calcularMetricas(fechaDesde, fechaHasta, bodega_id = null) {
   const recaudado   = parseFloat(stats.total_recaudado_usd);
   const premios     = parseFloat(pagos.premios_pagados_usd);
   const ganancia    = Math.round((recaudado - premios) * 100) / 100;
+  const pct         = await _porcentajes();
 
   return {
     ...stats,
     premios_pagados_usd:    premios,
     total_recaudado_usd:    recaudado,
     ganancia_bruta_usd:     ganancia,
-    ganancia_operador_usd:  Math.round(ganancia * 0.80 * 100) / 100,
-    ganancia_bodeguero_usd: Math.round(ganancia * 0.20 * 100) / 100,
+    ganancia_operador_usd:  Math.round(ganancia * pct.operador  * 100) / 100,
+    ganancia_bodeguero_usd: Math.round(ganancia * pct.bodeguero * 100) / 100,
     promedio_apuesta_usd:   Math.round(parseFloat(stats.promedio_apuesta_usd) * 100) / 100,
     categoria_mas_jugada:   categorias[0]?.deporte ?? null,
   };
@@ -66,29 +79,37 @@ async function calcularMetricasPorBodega(fechaDesde, fechaHasta) {
   );
 }
 
+// Upsert manual: el UNIQUE (bodega_id, mes, anio) no impide duplicados cuando
+// bodega_id es NULL (fila global), así que se busca la fila con `<=>`.
 async function guardarEstadisticasMensuales(mes, anio, m, bodega_id = null) {
+  const valores = [m.total_tickets, m.tickets_ganados, m.tickets_perdidos,
+    m.tickets_suspendidos, m.tickets_caducados, m.tickets_anulados,
+    m.premios_pagados_usd, m.total_recaudado_usd, m.promedio_apuesta_usd,
+    m.categoria_mas_jugada ?? null];
+
+  const [existente] = await query(
+    `SELECT id FROM estadisticas_mensuales WHERE bodega_id <=> ? AND mes = ? AND anio = ? ORDER BY id LIMIT 1`,
+    [bodega_id, mes, anio]
+  );
+  if (existente) {
+    await query(
+      `UPDATE estadisticas_mensuales
+          SET tickets_total = ?, tickets_ganados = ?, tickets_perdidos = ?,
+              tickets_suspendidos = ?, tickets_caducados_ganadores = ?, tickets_anulados = ?,
+              premios_pagados_usd = ?, recaudado_usd = ?, promedio_apuesta_usd = ?,
+              categoria_mas_jugada = ?, updated_at = NOW()
+        WHERE id = ?`,
+      [...valores, existente.id]
+    );
+    return;
+  }
   await query(
     `INSERT INTO estadisticas_mensuales
         (bodega_id, mes, anio, tickets_total, tickets_ganados, tickets_perdidos,
         tickets_suspendidos, tickets_caducados_ganadores, tickets_anulados,
         premios_pagados_usd, recaudado_usd, promedio_apuesta_usd, categoria_mas_jugada)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-      ON DUPLICATE KEY UPDATE
-        tickets_total             = VALUES(tickets_total),
-        tickets_ganados           = VALUES(tickets_ganados),
-        tickets_perdidos          = VALUES(tickets_perdidos),
-        tickets_suspendidos       = VALUES(tickets_suspendidos),
-        tickets_caducados_ganadores = VALUES(tickets_caducados_ganadores),
-        tickets_anulados          = VALUES(tickets_anulados),
-        premios_pagados_usd       = VALUES(premios_pagados_usd),
-        recaudado_usd             = VALUES(recaudado_usd),
-        promedio_apuesta_usd      = VALUES(promedio_apuesta_usd),
-        categoria_mas_jugada      = VALUES(categoria_mas_jugada),
-        updated_at                = NOW()`,
-    [bodega_id, mes, anio, m.total_tickets, m.tickets_ganados, m.tickets_perdidos,
-      m.tickets_suspendidos, m.tickets_caducados, m.tickets_anulados,
-      m.premios_pagados_usd, m.total_recaudado_usd, m.promedio_apuesta_usd,
-      m.categoria_mas_jugada ?? null]
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [bodega_id, mes, anio, ...valores]
   );
 }
 

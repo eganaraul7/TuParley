@@ -18,7 +18,9 @@ async function verificarToken(req, res, next) {
 
     // Verificar sesión activa en Redis
     const sesionCached = await getCache(KEYS.sesion(payload.id), true);
-    if (!sesionCached) {
+    // La sesión en Redis identifica el último login: un token de un login anterior
+    // (otro dispositivo o sesión ya cerrada) no es válido.
+    if (!sesionCached || sesionCached.hora_apertura_sesion !== payload.hora_apertura_sesion) {
       return res.status(401).json({ error: 'Sesión expirada o cerrada. Inicia sesión nuevamente.' });
     }
 

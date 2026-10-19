@@ -21,5 +21,6 @@ router.get  ('/:id',       bodegueroOAdmin,                    ctrl.obtenerTicke
 router.patch('/:id/modo-impresion', bodegueroOAdmin,           ctrl.actualizarModoImpresion);
 router.post ('/:id/solicitar-anulacion', bodegueroOAdmin,      ctrl.solicitarAnulacion);
 router.post ('/:id/pagar', bodegueroOAdmin,                    ctrl.procesarPago);
+router.post ('/:id/reembolsar', bodegueroOAdmin,               ctrl.reembolsarTicket);
 
 module.exports = router;

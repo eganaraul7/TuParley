@@ -26,6 +26,7 @@ const ESTADOS = [
   { key: 'ANULADO',          label: 'Anulado'    },
   { key: 'SUSPENDIDO',       label: 'Suspendido' },
   { key: 'CADUCADO_GANADOR', label: 'Caducado'   },
+  { key: 'REEMBOLSADO',      label: 'Reembolsado' },
 ];
 
 const POR_PAGINA = 20;
@@ -55,8 +56,8 @@ export default function HistorialPage() {
     setError('');
     try {
       const params = {
-        pagina:      pag,
-        limite:      POR_PAGINA,
+        page:        pag,
+        limit:       POR_PAGINA,
         estado:      estadoFiltro || undefined,
         serie:       busqueda.trim() || undefined,
         fecha_desde: fechaDesde || undefined,
@@ -83,6 +84,22 @@ export default function HistorialPage() {
   async function handlePagar(ticketId, payload) {
     await ticketsService.pagar(ticketId, payload);
     cargar(pagina);
+  }
+
+  async function handleReembolsar(ticketId) {
+    await ticketsService.reembolsar(ticketId);
+    cargar(pagina);
+  }
+
+  // El listado no trae selecciones ni pago: se pide el detalle completo al abrir
+  async function abrirDetalle(t) {
+    setTicketSeleccionado(t);
+    try {
+      const res = await ticketsService.obtenerPorId(t.id);
+      setTicketSeleccionado({ ...res.ticket, selecciones: res.selecciones ?? [], pago: res.pago ?? null });
+    } catch {
+      setError('No se pudo cargar el detalle del ticket.');
+    }
   }
 
   return (
@@ -207,7 +224,7 @@ export default function HistorialPage() {
               {tickets.map((t) => (
                 <tr
                   key={t.id}
-                  onClick={() => setTicketSeleccionado(t)}
+                  onClick={() => abrirDetalle(t)}
                   className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition group"
                 >
                   <td className="px-4 py-3.5">
@@ -274,6 +291,7 @@ export default function HistorialPage() {
           ticket={ticketSeleccionado}
           onCerrar={() => setTicketSeleccionado(null)}
           onPagar={handlePagar}
+          onReembolsar={handleReembolsar}
         />
       )}
     </div>
