@@ -1,18 +1,18 @@
 'use strict';
 
 const { query } = require('../config/db');
+const { paginacion } = require('../utils/paginacion');
 
 // ─── GET /api/pagos ───────────────────────────────────────────────────────────
 
 async function listarPagos(req, res) {
   const { rol, id: usuarioId, bodega_id } = req.usuario;
-  const { fecha_desde, fecha_hasta, moneda, page = 1, limit = 50 } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const { fecha_desde, fecha_hasta, moneda } = req.query;
+  const { page, limit, sql: limitSql } = paginacion(req.query);
 
   try {
     let sql = `SELECT p.id, p.ticket_id, p.monto_pagado_usd, p.monto_pagado_bs,
-                      p.moneda, p.tasa_bcv_pago, p.fecha_pago,
-                      p.cedula_foto_url,
+                      p.tipo, p.moneda, p.tasa_bcv_pago, p.fecha_pago,
                       t.numero_serie, t.bodega_id, t.ganancia_potencial_usd,
                       u_pago.nombre_usuario AS pagado_por,
                       b.nombre AS bodega_nombre
@@ -28,8 +28,7 @@ async function listarPagos(req, res) {
     if (fecha_hasta) { sql += ' AND DATE(p.fecha_pago) <= ?'; params.push(fecha_hasta); }
     if (moneda)      { sql += ' AND p.moneda = ?';            params.push(moneda); }
 
-    sql += ' ORDER BY p.fecha_pago DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), offset);
+    sql += ' ORDER BY p.fecha_pago DESC' + limitSql;
 
     const pagos = await query(sql, params);
 
@@ -49,7 +48,7 @@ async function listarPagos(req, res) {
 
     const [totales] = await query(sqlTotales, paramsTotales);
 
-    return res.status(200).json({ pagos, totales, page: parseInt(page), limit: parseInt(limit) });
+    return res.status(200).json({ pagos, totales, page, limit });
   } catch (err) {
     console.error('[pago.controller] listarPagos:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });

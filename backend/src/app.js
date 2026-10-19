@@ -16,16 +16,15 @@ const reporteRoutes      = require('./routes/reporte.routes');
 const notificacionRoutes = require('./routes/notificacion.routes');
 const bodegaRoutes       = require('./routes/bodega.routes');
 
+const { ORIGENES_PERMITIDOS } = require('./config/cors');
+const { TRUST_PROXY }         = require('./config/env');
+
 const app = express();
 
+// req.ip usa X-Forwarded-For solo si viene de un proxy de confianza (Nginx local)
+app.set('trust proxy', TRUST_PROXY);
+
 // ─── Seguridad y utilidades ───────────────────────────────────────────────────
-const ORIGENES_PERMITIDOS = [
-  process.env.FRONTEND_URL,
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:4173',
-].filter(Boolean);
 
 app.use(helmet());
 app.use(compression());
@@ -56,22 +55,48 @@ const bcvService         = require('./services/bcv.service');
 const { query }          = require('./config/db');
 
 app.get('/api/bcv/actual', verificarToken, async (req, res) => {
-  const tasa = await bcvService.obtenerTasaActual();
-  return res.json({ tasa });
+  try {
+    const tasa = await bcvService.obtenerTasaDetalle();
+    const respuesta = { tasa, rango: { minimo: bcvService.RANGO_MIN, maximo: bcvService.RANGO_MAX } };
+    if (['computadora_madre', 'administrador'].includes(req.usuario.rol)) {
+      respuesta.estado_api = await bcvService.obtenerEstadoApi();
+    }
+    return res.json(respuesta);
+  } catch (err) {
+    console.error('[app] bcv/actual:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 app.post('/api/bcv/manual', verificarToken, soloAdmin, async (req, res) => {
   const { valor } = req.body;
   try {
     const nuevo = await bcvService.setTasaManual(valor, req.usuario.id);
-    req.app.get('io')?.emitirTodos('bcv_actualizada', { valor: nuevo });
+    req.app.get('io')?.emitirTodos('bcv_actualizada', { valor: nuevo, fuente: 'manual' });
     await query(
-      `INSERT INTO auditoria_logs (usuario_id, accion, detalle) VALUES (?, 'bcv_manual', ?)`,
-      [req.usuario.id, JSON.stringify({ valor: nuevo })]
+      `INSERT INTO auditoria_logs (usuario_id, accion, detalle, ip_address) VALUES (?, 'bcv_manual', ?, ?)`,
+      [req.usuario.id, JSON.stringify({ valor: nuevo }), req.ip]
     );
-    return res.json({ mensaje: 'Tasa BCV actualizada manualmente', valor: nuevo });
+    return res.json({ mensaje: 'Tasa BCV actualizada manualmente', valor: nuevo, tasa: await bcvService.obtenerTasaDetalle() });
   } catch (err) {
     return res.status(400).json({ error: err.message });
+  }
+});
+
+// Consulta la API en el momento (reemplaza también una tasa manual del día)
+app.post('/api/bcv/actualizar', verificarToken, soloAdmin, async (req, res) => {
+  try {
+    const r = await bcvService.actualizarTasaDesdeApi({ forzar: true });
+    if (!r.exito) return res.status(502).json({ error: `No se pudo obtener la tasa: ${r.error}`, motivo: r.motivo });
+    req.app.get('io')?.emitirTodos('bcv_actualizada', { valor: r.valor, fuente: 'api' });
+    await query(
+      `INSERT INTO auditoria_logs (usuario_id, accion, detalle, ip_address) VALUES (?, 'bcv_api_manual', ?, ?)`,
+      [req.usuario.id, JSON.stringify({ valor: r.valor }), req.ip]
+    );
+    return res.json({ mensaje: 'Tasa actualizada desde la API', valor: r.valor, tasa: await bcvService.obtenerTasaDetalle() });
+  } catch (err) {
+    console.error('[app] bcv/actualizar:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 
@@ -84,7 +109,7 @@ app.get('/api/admin/mantenimiento', verificarToken, soloAdmin, async (req, res) 
 });
 
 app.post('/api/admin/mantenimiento', verificarToken, soloAdmin, async (req, res) => {
-  const { activo } = req.body;
+  const activo = req.body?.activo === true || req.body?.activo === 'true' || req.body?.activo === 1;
   if (activo) {
     await setCache(KEYS.MANTENIMIENTO, '1', 86400);
     req.app.get('io')?.emitirTodos('mantenimiento', { activo: true });

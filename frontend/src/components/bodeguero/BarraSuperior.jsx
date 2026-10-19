@@ -77,6 +77,21 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
     }
   }
 
+  // Al abrir la app, reconectar la impresora USB ya autorizada (sin pedir permiso)
+  useEffect(() => {
+    printerService.reconectar().then(setEstadoImpresora).catch(() => {});
+  }, []);
+
+  async function handleImprimirPrueba() {
+    try {
+      await printerService.imprimirPrueba();
+    } catch (err) {
+      alert(err.message ?? 'No se pudo imprimir la prueba.');
+    } finally {
+      setMenuAbierto(false);
+    }
+  }
+
   async function handleDesconectar() {
     await printerService.desconectar();
     setEstadoImpresora(printerService.estado());
@@ -183,6 +198,14 @@ export default function BarraSuperior({ tasaBcv, onBuscarSerie, onAbrirHistorial
             >
               <Bluetooth className="w-3.5 h-3.5 text-[#94a3b8]" /> Conectar Bluetooth
             </button>
+            {estadoImpresora.conectada && (
+              <button
+                onClick={handleImprimirPrueba}
+                className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-white hover:bg-white/5 transition"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#94a3b8]" /> Imprimir prueba
+              </button>
+            )}
             {estadoImpresora.conectada && (
               <button
                 onClick={handleDesconectar}

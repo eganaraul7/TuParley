@@ -18,3 +18,6 @@ frontend/.env
 
 # Configuración del editor (para limpiar esa carpeta que se subió)
 .vscode/
+# Variables locales de Vite
+frontend/.env.local
+frontend/.env.*.local

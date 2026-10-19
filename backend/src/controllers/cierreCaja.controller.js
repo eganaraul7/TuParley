@@ -3,6 +3,8 @@
 const bcrypt = require('bcrypt');
 const { query }          = require('../config/db');
 const { delCache, KEYS } = require('../config/redis');
+const { hoyVET }         = require('../utils/fecha');
+const { paginacion }     = require('../utils/paginacion');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -23,8 +25,9 @@ async function _notificar(tipo, mensaje, destinatario_rol, referencia_id, refere
   );
 }
 
+// req.ip ya considera X-Forwarded-For solo desde proxies de confianza (app.set('trust proxy'))
 function _ip(req) {
-  return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  return req.ip || '';
 }
 
 // ─── GET /api/cierre-caja/resumen ─────────────────────────────────────────────
@@ -34,7 +37,7 @@ async function obtenerResumenCaja(req, res) {
   const { id: usuarioId, bodega_id, hora_apertura_sesion } = req.usuario;
 
   try {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyVET();
 
     // Total tickets vendidos (no ANULADO)
     const [totalesTickets] = await query(
@@ -123,7 +126,7 @@ async function cerrarCaja(req, res) {
       return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
 
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = hoyVET();
 
     // 2. Verificar que no haya cierre previo hoy
     const cierreExistente = await query(
@@ -225,8 +228,9 @@ async function cerrarCaja(req, res) {
 
 async function listarCierres(req, res) {
   const { id: usuarioId, bodega_id, rol } = req.usuario;
-  const { fecha_desde, fecha_hasta, bodega, page = 1, limit = 30 } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const { fecha_desde, fecha_hasta } = req.query;
+  const bodega = req.query.bodega ?? req.query.bodega_id;
+  const { page, limit, sql: limitSql } = paginacion(req.query, { limitDefault: 30 });
 
   try {
     let sql = `SELECT cc.*, u.nombre_usuario, b.nombre AS bodega_nombre
@@ -242,11 +246,10 @@ async function listarCierres(req, res) {
     if (fecha_desde) { sql += ' AND cc.fecha >= ?'; params.push(fecha_desde); }
     if (fecha_hasta) { sql += ' AND cc.fecha <= ?'; params.push(fecha_hasta); }
 
-    sql += ' ORDER BY cc.fecha DESC, cc.hora_cierre DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), offset);
+    sql += ' ORDER BY cc.fecha DESC, cc.hora_cierre DESC' + limitSql;
 
     const cierres = await query(sql, params);
-    return res.status(200).json({ cierres, page: parseInt(page), limit: parseInt(limit) });
+    return res.status(200).json({ cierres, page, limit });
   } catch (err) {
     console.error('[cierreCaja.controller] listarCierres:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });

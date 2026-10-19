@@ -2,16 +2,23 @@
 
 ## Orden de ejecución
 
+**Desarrollo local con Docker:** `docker compose up -d` crea la base con `schema.sql`, `seeds.sql` y las migraciones 002 → 007 (solo la primera vez, con el volumen vacío).
+
+**Base existente o servidor:** desde `backend/`
+
 ```bash
-# 1. Crear la base de datos y todas las tablas
-mysql -u root -p < schema.sql
-
-# 2. Insertar datos iniciales
-mysql -u root -p < seeds.sql
-
-# 3. Aplicar índices adicionales (opcional pero recomendado)
-mysql -u root -p < migrations/002_additional_indexes.sql
+npm run db:migrate
 ```
+
+`migrate.js` lee `backend/.env`, aplica en orden `schema.sql`, `seeds.sql` y `migrations/*.sql`, y salta las versiones ya registradas en `schema_migrations`. Se puede ejecutar varias veces sin riesgo: no borra datos.
+
+Cada migración nueva debe terminar registrando su versión:
+
+```sql
+INSERT IGNORE INTO schema_migrations (version) VALUES ('008_mi_cambio');
+```
+
+(`schema_migrations.version` es VARCHAR(20): se comparan los primeros 20 caracteres del nombre del archivo.)
 
 ## Credenciales iniciales
 
@@ -29,7 +36,7 @@ Si necesitas cambiar la contraseña del root antes de insertar seeds:
 
 ```bash
 cd backend
-node -e "const b=require('bcrypt'); b.hash('TuNuevaContraseña',12).then(h=>console.log(h))"
+node -e "require('bcrypt').hash('TuNuevaContraseña',12).then(h=>console.log(h))"
 ```
 
 Reemplaza el hash en `seeds.sql` línea del INSERT de `computadora_madre`.
@@ -65,14 +72,15 @@ PERDIDO         → cliente no acertó
 PAGADO          → premio entregado
 ANULADO         → cancelado por admin (solicitud formal)
 SUSPENDIDO      → evento cancelado, cliente puede pedir devolución
+REEMBOLSADO     → se devolvió lo apostado (pagos.tipo = 'reembolso')
 CADUCADO_GANADOR→ ganó pero no cobró en 48 horas
 ```
 
 ## Roles de usuario
 
 ```
-computadora_madre  → acceso total, 2FA obligatorio
-administrador      → igual a computadora_madre, 2FA obligatorio
+computadora_madre  → acceso total; única que gestiona su propia cuenta
+administrador      → panel completo, no puede gestionar a computadora_madre
 bodeguero          → solo su bodega, sin acceso global
 desconocido        → acceso pendiente de aprobación por admin
 ```

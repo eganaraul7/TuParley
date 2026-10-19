@@ -3,6 +3,7 @@
 const { query, getConnection }               = require('../config/db');
 const { getCache, KEYS }                     = require('../config/redis');
 const { generarHashTicket, verificarHashTicket } = require('../services/hash.service');
+const { paginacion }                         = require('../utils/paginacion');
 
 async function _log(usuarioId, accion, entidad_afectada, entidad_id, detalle, ip) {
   await query(
@@ -21,8 +22,12 @@ async function _notificar(tipo, mensaje, destinatario_rol, referencia_id, refere
   );
 }
 
+const {
+  ErrorApuesta, obtenerLimites, validarSelecciones, insertarSelecciones, calcularGanancia,
+} = require('../services/apuestas.service');
+
 function _ip(req) {
-  return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  return req.ip || '';
 }
 
 async function _obtenerTasaBcv() {
@@ -31,7 +36,7 @@ async function _obtenerTasaBcv() {
   const rows = await query(
     `SELECT valor FROM tasa_bcv WHERE validada = 1 ORDER BY fecha DESC, id DESC LIMIT 1`
   );
-  if (rows.length === 0) throw new Error('Tasa BCV no disponible');
+  if (rows.length === 0) throw new ErrorApuesta(503, 'Tasa BCV no disponible. El administrador debe cargarla.');
   return parseFloat(rows[0].valor);
 }
 
@@ -40,122 +45,61 @@ function _generarNumeroSerie(bodegaPrefijo) {
   return `${bodegaPrefijo}-${r4()}-${r4()}`;
 }
 
-function _calcularGanancia(montoUsd, cuotaCombinada) {
-  return Math.round(montoUsd * cuotaCombinada * 100) / 100;
+function _responderError(res, err, contexto) {
+  if (err instanceof ErrorApuesta) return res.status(err.status).json({ error: err.message, ...err.extra });
+  if (err?.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Operación duplicada' });
+  console.error(`[ticket.controller] ${contexto}:`, err);
+  return res.status(500).json({ error: 'Error interno del servidor' });
 }
 
-const MAX_GANANCIA_USD = 300;
-const APUESTA_MINIMA   = 1;
+// Valida monto contra límites y devuelve los montos calculados por el servidor
+function _calcularMontos(montoUsd, cuotaCombinada, tasa, limites) {
+  if (!Number.isFinite(montoUsd) || montoUsd < limites.apuestaMinUsd)
+    throw new ErrorApuesta(400, `Apuesta mínima es $${limites.apuestaMinUsd}`);
+  const gananciaUsd = calcularGanancia(montoUsd, cuotaCombinada);
+  if (gananciaUsd > limites.maxGananciaUsd) {
+    const montoMax = Math.floor((limites.maxGananciaUsd / cuotaCombinada) * 100) / 100;
+    throw new ErrorApuesta(400, `Ganancia excede $${limites.maxGananciaUsd}. Monto máximo: $${montoMax}`,
+      { monto_maximo: montoMax, cuota_combinada: cuotaCombinada });
+  }
+  return {
+    gananciaUsd,
+    gananciaBs: Math.round(gananciaUsd * tasa * 100) / 100,
+    montoBs:    Math.round(montoUsd * tasa * 100) / 100,
+  };
+}
 
 // ─── POST /api/tickets ────────────────────────────────────────────────────────
 
 async function crearTicket(req, res) {
   const { id: usuarioId, bodega_id, bodega_prefijo } = req.usuario;
   const ip = _ip(req);
-  const { selecciones, monto_apostado_usd, moneda_pago, origen = 'online', hash_cliente } = req.body;
+  const { selecciones, monto_apostado_usd, moneda_pago } = req.body;
 
-  if (!selecciones || !Array.isArray(selecciones) || selecciones.length === 0) {
-    return res.status(400).json({ error: 'Se requiere al menos una selección' });
-  }
-  if (!monto_apostado_usd || parseFloat(monto_apostado_usd) < APUESTA_MINIMA) {
-    return res.status(400).json({ error: `Apuesta mínima es $${APUESTA_MINIMA}` });
-  }
   if (!['USD', 'BS'].includes(moneda_pago)) {
     return res.status(400).json({ error: "moneda_pago debe ser 'USD' o 'BS'" });
   }
   if (!bodega_id || !bodega_prefijo) {
-    return res.status(403).json({ error: 'El bodeguero no tiene bodega asignada' });
-  }
-
-  const eventosIds = selecciones.map(s => s.evento_id);
-  if (new Set(eventosIds).size !== eventosIds.length) {
-    return res.status(400).json({ error: 'No puedes incluir el mismo evento dos veces en un ticket' });
+    return res.status(403).json({ error: 'El usuario no tiene bodega asignada' });
   }
 
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
 
-    const montoUsd = parseFloat(monto_apostado_usd);
+    const montoUsd = Math.round(parseFloat(monto_apostado_usd) * 100) / 100;
+    const limites  = await obtenerLimites(conn);
     const tasa     = await _obtenerTasaBcv();
+    const { selecciones: seleccionesValidas, cuotaCombinada } = await validarSelecciones(conn, selecciones);
+    const { gananciaUsd, gananciaBs, montoBs } = _calcularMontos(montoUsd, cuotaCombinada, tasa, limites);
 
-    let cuotaCombinada = 1;
-    const seleccionesValidas = [];
-
-    for (const sel of selecciones) {
-      const { evento_id, modalidad_id, seleccion } = sel;
-      if (!evento_id || !modalidad_id || !seleccion) {
-        await conn.rollback(); conn.release();
-        return res.status(400).json({ error: 'Cada selección necesita evento_id, modalidad_id y seleccion' });
-      }
-
-      const [eventoRows] = await conn.query(
-        `SELECT id, deporte, estado, activo FROM eventos WHERE id = ? LIMIT 1`, [evento_id]
-      );
-      const evento = eventoRows[0];
-      if (!evento) {
-        await conn.rollback(); conn.release();
-        return res.status(404).json({ error: `Evento ${evento_id} no encontrado` });
-      }
-      if (evento.estado !== 'programado' || !evento.activo) {
-        await conn.rollback(); conn.release();
-        return res.status(409).json({ error: `Evento ${evento_id} no disponible para apuestas` });
-      }
-
-      const [catRows] = await conn.query(
-        `SELECT activa FROM categorias_config WHERE deporte = ? LIMIT 1`, [evento.deporte]
-      );
-      if (!catRows[0] || !catRows[0].activa) {
-        await conn.rollback(); conn.release();
-        return res.status(409).json({ error: `Categoría ${evento.deporte} está desactivada` });
-      }
-
-      const [modRows] = await conn.query(
-        `SELECT id, cuota_base, activa, deporte FROM modalidades WHERE id = ? LIMIT 1`, [modalidad_id]
-      );
-      const modalidad = modRows[0];
-      if (!modalidad || !modalidad.activa) {
-        await conn.rollback(); conn.release();
-        return res.status(404).json({ error: `Modalidad ${modalidad_id} no disponible` });
-      }
-      if (modalidad.deporte !== evento.deporte) {
-        await conn.rollback(); conn.release();
-        return res.status(400).json({ error: `Modalidad ${modalidad_id} no corresponde al deporte del evento` });
-      }
-
-      cuotaCombinada = Math.round(cuotaCombinada * parseFloat(modalidad.cuota_base) * 10000) / 10000;
-      seleccionesValidas.push({ evento_id, modalidad_id, seleccion, cuota_aplicada: parseFloat(modalidad.cuota_base) });
+    let numeroSerie = null;
+    for (let i = 0; i < 10 && !numeroSerie; i++) {
+      const candidato = _generarNumeroSerie(bodega_prefijo);
+      const [exist] = await conn.query(`SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [candidato]);
+      if (!exist[0]) numeroSerie = candidato;
     }
-
-    const gananciaPotencialUsd = _calcularGanancia(montoUsd, cuotaCombinada);
-    if (gananciaPotencialUsd > MAX_GANANCIA_USD) {
-      const montoAjustado = Math.floor((MAX_GANANCIA_USD / cuotaCombinada) * 100) / 100;
-      await conn.rollback(); conn.release();
-      return res.status(400).json({
-        error: `Ganancia excede $${MAX_GANANCIA_USD}. Monto máximo: $${montoAjustado}`,
-        monto_maximo: montoAjustado,
-        cuota_combinada: cuotaCombinada,
-      });
-    }
-
-    const gananciaPotencialBs = Math.round(gananciaPotencialUsd * tasa * 100) / 100;
-    const montoApostadoBs     = Math.round(montoUsd * tasa * 100) / 100;
-
-    let numeroSerie;
-    let serieUnica = false;
-    let intentos   = 0;
-    while (!serieUnica && intentos < 10) {
-      numeroSerie = _generarNumeroSerie(bodega_prefijo);
-      const [exist] = await conn.query(
-        `SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [numeroSerie]
-      );
-      if (!exist[0]) serieUnica = true;
-      intentos++;
-    }
-    if (!serieUnica) {
-      await conn.rollback(); conn.release();
-      return res.status(500).json({ error: 'Error generando número de serie, reintenta' });
-    }
+    if (!numeroSerie) throw new ErrorApuesta(500, 'Error generando número de serie, reintenta');
 
     const ahora      = new Date();
     const hashSha256 = generarHashTicket({
@@ -169,115 +113,131 @@ async function crearTicket(req, res) {
           (numero_serie, bodega_id, usuario_id, monto_apostado_usd, monto_apostado_bs,
           tasa_bcv_dia, cuota_combinada, ganancia_potencial_usd, ganancia_potencial_bs,
           estado, moneda_pago, origen, sincronizado, hash_sha256, fecha_creacion)
-        VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,?,?,?,?)`,
-      [
-        numeroSerie, bodega_id, usuarioId,
-        montoUsd, montoApostadoBs, tasa,
-        cuotaCombinada, gananciaPotencialUsd, gananciaPotencialBs,
-        moneda_pago, origen,
-        origen === 'online' ? 1 : 0,
-        hashSha256, ahora,
-      ]
+        VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,'online',1,?,?)`,
+      [numeroSerie, bodega_id, usuarioId, montoUsd, montoBs, tasa,
+        cuotaCombinada, gananciaUsd, gananciaBs, moneda_pago, hashSha256, ahora]
     );
     const ticketId = ticketResult.insertId;
-
-    for (const sel of seleccionesValidas) {
-      await conn.query(
-        `INSERT INTO selecciones_ticket (ticket_id, evento_id, modalidad_id, cuota_aplicada, seleccion, resultado)
-          VALUES (?,?,?,?,?,'pendiente')`,
-        [ticketId, sel.evento_id, sel.modalidad_id, sel.cuota_aplicada, sel.seleccion]
-      );
-    }
+    await insertarSelecciones(conn, ticketId, seleccionesValidas);
 
     await conn.commit();
-    conn.release();
 
-    if (gananciaPotencialUsd >= 200) {
-      await _notificar(
-        'ticket_ganador',
-        `Ticket ${numeroSerie} con ganancia potencial $${gananciaPotencialUsd} creado en bodega ${bodega_id}`,
-        'ambos', ticketId, 'tickets'
-      );
+    if (gananciaUsd >= 200) {
+      await _notificar('ticket_ganador',
+        `Ticket ${numeroSerie} con ganancia potencial $${gananciaUsd} creado en bodega ${bodega_id}`,
+        'ambos', ticketId, 'tickets');
     }
     await _log(usuarioId, 'crear_ticket', 'tickets', ticketId,
-      { numeroSerie, montoUsd, cuotaCombinada, gananciaPotencialUsd, origen }, ip);
+      { numeroSerie, montoUsd, cuotaCombinada, gananciaPotencialUsd: gananciaUsd, origen: 'online' }, ip);
 
     return res.status(201).json({
       ticket: {
         id: ticketId, numero_serie: numeroSerie,
-        monto_apostado_usd: montoUsd, monto_apostado_bs: montoApostadoBs,
+        monto_apostado_usd: montoUsd, monto_apostado_bs: montoBs,
         tasa_bcv_dia: tasa, cuota_combinada: cuotaCombinada,
-        ganancia_potencial_usd: gananciaPotencialUsd, ganancia_potencial_bs: gananciaPotencialBs,
-        estado: 'PENDIENTE', moneda_pago, origen, hash_sha256: hashSha256,
+        ganancia_potencial_usd: gananciaUsd, ganancia_potencial_bs: gananciaBs,
+        estado: 'PENDIENTE', moneda_pago, origen: 'online', hash_sha256: hashSha256,
         fecha_creacion: ahora, selecciones: seleccionesValidas,
       }
     });
-
   } catch (err) {
-    try { await conn.rollback(); conn.release(); } catch {}
-    console.error('[ticket.controller] crearTicket:', err);
-    return res.status(500).json({ error: 'Error interno del servidor' });
+    await conn.rollback().catch(() => {});
+    return _responderError(res, err, 'crearTicket');
+  } finally {
+    conn.release();
   }
 }
 
 // ─── POST /api/tickets/sync-offline ──────────────────────────────────────────
+// Los tickets offline se revalidan por completo: el servidor recalcula cuotas,
+// exige que la bodega/usuario sean los del token y que ningún evento haya
+// empezado. Si algo no cuadra se rechaza y se avisa al administrador para
+// devolver el dinero al cliente.
+
+const SERIE_RE = /^[A-Z0-9]{1,5}-\d{4}-\d{4}$/;
+
+async function _sincronizarUno(req, t) {
+  const { id: usuarioId, bodega_id, bodega_prefijo } = req.usuario;
+  const { hash_sha256, numero_serie, monto_apostado_usd, cuota_combinada, selecciones, ts, moneda_pago, modo_impresion } = t ?? {};
+
+  if (typeof numero_serie !== 'string' || !SERIE_RE.test(numero_serie) || !numero_serie.startsWith(`${bodega_prefijo}-`))
+    throw new ErrorApuesta(400, 'Número de serie inválido');
+  if (Number(t.bodega_id) !== Number(bodega_id) || Number(t.usuario_id) !== Number(usuarioId))
+    throw new ErrorApuesta(403, 'El ticket no pertenece a este usuario/bodega');
+  if (!verificarHashTicket({ numero_serie, bodega_id: t.bodega_id, usuario_id: t.usuario_id,
+    monto_apostado_usd, cuota_combinada, selecciones, ts }, hash_sha256))
+    throw new ErrorApuesta(400, 'Hash inválido');
+
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum) || tsNum > Date.now() + 5 * 60000 || tsNum < Date.now() - 48 * 3600000)
+    throw new ErrorApuesta(400, 'Fecha del ticket fuera de rango');
+  const moneda = ['USD', 'BS'].includes(moneda_pago) ? moneda_pago : 'USD';
+
+  const existe = await query(`SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [numero_serie]);
+  if (existe.length > 0) return { estado: 'ya_existe', ticket_id: existe[0].id };
+
+  const conn = await getConnection();
+  try {
+    await conn.beginTransaction();
+    const montoUsd = Math.round(parseFloat(monto_apostado_usd) * 100) / 100;
+    const limites  = await obtenerLimites(conn);
+    const tasa     = await _obtenerTasaBcv();
+    const { selecciones: seleccionesValidas, cuotaCombinada } = await validarSelecciones(conn, selecciones);
+    if (Math.abs(cuotaCombinada - Number(cuota_combinada)) > 0.001)
+      throw new ErrorApuesta(409, `La cuota cambió (impresa ${Number(cuota_combinada).toFixed(2)}, vigente ${cuotaCombinada.toFixed(2)})`);
+    const { gananciaUsd, gananciaBs, montoBs } = _calcularMontos(montoUsd, cuotaCombinada, tasa, limites);
+
+    const [result] = await conn.query(
+      `INSERT INTO tickets
+          (numero_serie, bodega_id, usuario_id, monto_apostado_usd, monto_apostado_bs,
+          tasa_bcv_dia, cuota_combinada, ganancia_potencial_usd, ganancia_potencial_bs,
+          estado, moneda_pago, modo_impresion, origen, sincronizado, hash_sha256, fecha_creacion)
+        VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,?,'offline',1,?,?)`,
+      [numero_serie, bodega_id, usuarioId, montoUsd, montoBs, tasa,
+        cuotaCombinada, gananciaUsd, gananciaBs, moneda,
+        ['fisica', 'digital'].includes(modo_impresion) ? modo_impresion : null,
+        hash_sha256, new Date(tsNum)]
+    );
+    await insertarSelecciones(conn, result.insertId, seleccionesValidas);
+    await conn.commit();
+    return { estado: 'sincronizado', ticket_id: result.insertId };
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
 
 async function sincronizarOffline(req, res) {
   const { cola } = req.body;
   if (!Array.isArray(cola) || cola.length === 0) {
     return res.status(400).json({ error: 'cola debe ser un arreglo no vacío' });
   }
+  if (cola.length > 100) {
+    return res.status(400).json({ error: 'Máximo 100 tickets por sincronización' });
+  }
 
   const resultados = [];
   for (const ticketOffline of cola) {
-    const { hash_sha256, numero_serie, bodega_id, usuario_id, monto_apostado_usd,
-            cuota_combinada, selecciones, ts, moneda_pago, modo_impresion } = ticketOffline;
-
-    const hashValido = verificarHashTicket(
-      { numero_serie, bodega_id, usuario_id, monto_apostado_usd, cuota_combinada, selecciones, ts },
-      hash_sha256,
-    );
-    if (!hashValido) {
-      resultados.push({ numero_serie, estado: 'rechazado', motivo: 'Hash inválido' });
-      await _log(req.usuario.id, 'sync_offline_rechazado', 'tickets', null,
-        { numero_serie, motivo: 'hash_invalido' }, _ip(req));
-      continue;
-    }
-
-    const existe = await query(`SELECT id FROM tickets WHERE numero_serie = ? LIMIT 1`, [numero_serie]);
-    if (existe.length > 0) { resultados.push({ numero_serie, estado: 'ya_existe' }); continue; }
-
+    const numero_serie = ticketOffline?.numero_serie ?? null;
     try {
-      const tasa = await _obtenerTasaBcv();
-      const montoUsd             = parseFloat(monto_apostado_usd);
-      const gananciaPotencialUsd = _calcularGanancia(montoUsd, parseFloat(cuota_combinada));
-      const montoApostadoBs      = Math.round(montoUsd * tasa * 100) / 100;
-      const gananciaPotencialBs  = Math.round(gananciaPotencialUsd * tasa * 100) / 100;
-
-      const result = await query(
-        `INSERT INTO tickets
-            (numero_serie, bodega_id, usuario_id, monto_apostado_usd, monto_apostado_bs,
-            tasa_bcv_dia, cuota_combinada, ganancia_potencial_usd, ganancia_potencial_bs,
-            estado, moneda_pago, modo_impresion, origen, sincronizado, hash_sha256, fecha_creacion)
-          VALUES (?,?,?,?,?,?,?,?,?,'PENDIENTE',?,?,?,1,?,?)`,
-        [numero_serie, bodega_id, usuario_id, montoUsd, montoApostadoBs, tasa,
-          cuota_combinada, gananciaPotencialUsd, gananciaPotencialBs,
-          moneda_pago, modo_impresion ?? null, 'offline', hash_sha256, new Date(ts)]
-      );
-      const ticketId = result.insertId;
-
-      for (const sel of selecciones) {
-        await query(
-          `INSERT INTO selecciones_ticket (ticket_id, evento_id, modalidad_id, cuota_aplicada, seleccion, resultado)
-            VALUES (?,?,?,?,?,'pendiente')`,
-          [ticketId, sel.evento_id, sel.modalidad_id, sel.cuota_aplicada, sel.seleccion]
-        );
+      const r = await _sincronizarUno(req, ticketOffline);
+      resultados.push({ numero_serie, ...r });
+      if (r.estado === 'sincronizado')
+        await _log(req.usuario.id, 'sync_offline_ok', 'tickets', r.ticket_id, { numero_serie }, _ip(req));
+    } catch (err) {
+      if (!(err instanceof ErrorApuesta) && err?.code !== 'ER_DUP_ENTRY') {
+        console.error('[ticket.controller] sincronizarOffline:', err);
+        resultados.push({ numero_serie, estado: 'error', motivo: 'Error interno, se reintentará' });
+        continue;
       }
-
-      resultados.push({ numero_serie, estado: 'sincronizado', ticket_id: ticketId });
-      await _log(req.usuario.id, 'sync_offline_ok', 'tickets', ticketId, { numero_serie }, _ip(req));
-    } catch (e) {
-      resultados.push({ numero_serie, estado: 'error', motivo: e.message });
+      const motivo = err.code === 'ER_DUP_ENTRY' ? 'Ticket duplicado' : err.message;
+      resultados.push({ numero_serie, estado: 'rechazado', motivo });
+      await _log(req.usuario.id, 'sync_offline_rechazado', 'tickets', null, { numero_serie, motivo }, _ip(req));
+      await _notificar('ticket_offline_rechazado',
+        `Ticket offline ${numero_serie ?? '(sin serie)'} de "${req.usuario.nombre_usuario}" rechazado: ${motivo}. Devolver el dinero al cliente.`,
+        'ambos', null, 'tickets');
     }
   }
 
@@ -288,32 +248,35 @@ async function sincronizarOffline(req, res) {
 
 async function listarTickets(req, res) {
   const { rol, bodega_id } = req.usuario;
-  const { estado, fecha_desde, fecha_hasta, page = 1, limit = 50 } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const { estado, fecha_desde, fecha_hasta, serie } = req.query;
+  const { page, limit, sql: limitSql } = paginacion(req.query);
 
   try {
-    let sql = `SELECT t.id, t.numero_serie, t.bodega_id, t.usuario_id,
-                      t.monto_apostado_usd, t.monto_apostado_bs, t.tasa_bcv_dia,
-                      t.cuota_combinada, t.ganancia_potencial_usd, t.ganancia_potencial_bs,
-                      t.estado, t.modo_impresion, t.moneda_pago, t.origen, t.fecha_creacion,
-                      t.fecha_estado_ganado, t.fecha_vencimiento_cobro,
-                      b.nombre AS bodega_nombre, u.nombre_usuario
-                  FROM tickets t
-                  JOIN bodegas b ON b.id = t.bodega_id
-                  JOIN usuarios u ON u.id = t.usuario_id
-                WHERE 1=1`;
+    let where = ' WHERE 1=1';
     const params = [];
 
-    if (rol === 'bodeguero') { sql += ' AND t.bodega_id = ?'; params.push(bodega_id); }
-    if (estado)      { sql += ' AND t.estado = ?';                params.push(estado); }
-    if (fecha_desde) { sql += ' AND DATE(t.fecha_creacion) >= ?'; params.push(fecha_desde); }
-    if (fecha_hasta) { sql += ' AND DATE(t.fecha_creacion) <= ?'; params.push(fecha_hasta); }
+    if (rol === 'bodeguero') { where += ' AND t.bodega_id = ?'; params.push(bodega_id); }
+    if (estado)      { where += ' AND t.estado = ?';                params.push(estado); }
+    if (fecha_desde) { where += ' AND DATE(t.fecha_creacion) >= ?'; params.push(fecha_desde); }
+    if (fecha_hasta) { where += ' AND DATE(t.fecha_creacion) <= ?'; params.push(fecha_hasta); }
+    if (serie)       { where += ' AND t.numero_serie LIKE ?';       params.push(`%${String(serie).trim()}%`); }
 
-    sql += ' ORDER BY t.fecha_creacion DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), offset);
-
-    const tickets = await query(sql, params);
-    return res.status(200).json({ tickets, page: parseInt(page), limit: parseInt(limit) });
+    const tickets = await query(
+      `SELECT t.id, t.numero_serie, t.bodega_id, t.usuario_id,
+              t.monto_apostado_usd, t.monto_apostado_bs, t.tasa_bcv_dia,
+              t.cuota_combinada, t.ganancia_potencial_usd, t.ganancia_potencial_bs,
+              t.estado, t.modo_impresion, t.moneda_pago, t.origen, t.fecha_creacion,
+              t.fecha_estado_ganado, t.fecha_vencimiento_cobro,
+              b.nombre AS bodega_nombre, u.nombre_usuario
+         FROM tickets t
+         JOIN bodegas b ON b.id = t.bodega_id
+         JOIN usuarios u ON u.id = t.usuario_id
+       ${where}
+        ORDER BY t.fecha_creacion DESC${limitSql}`,
+      params
+    );
+    const [{ total }] = await query(`SELECT COUNT(*) AS total FROM tickets t${where}`, params);
+    return res.status(200).json({ tickets, total, page, limit });
   } catch (err) {
     console.error('[ticket.controller] listarTickets:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
@@ -392,7 +355,14 @@ async function obtenerTicket(req, res) {
         WHERE st.ticket_id = ?`,
       [ticket.id]
     );
-    return res.status(200).json({ ticket, selecciones });
+    const [pago] = await query(
+      `SELECT p.tipo, p.monto_pagado_usd, p.monto_pagado_bs, p.moneda, p.tasa_bcv_pago, p.fecha_pago,
+              u.nombre_usuario AS pagado_por
+         FROM pagos p JOIN usuarios u ON u.id = p.usuario_quien_pago
+        WHERE p.ticket_id = ? LIMIT 1`,
+      [ticket.id]
+    );
+    return res.status(200).json({ ticket, selecciones, pago: pago ?? null });
   } catch (err) {
     console.error('[ticket.controller] obtenerTicket:', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
@@ -430,7 +400,8 @@ async function consultarQR(req, res) {
     const selecciones = await query(
       `SELECT e.equipo_local, e.equipo_visitante, e.liga, e.deporte,
               e.fecha_inicio, e.resultado_final,
-              st.seleccion, st.cuota_aplicada, st.resultado,
+              st.seleccion, st.cuota_aplicada, st.cuota_total, st.resultado,
+              st.marcador_local, st.marcador_visitante, st.detalle_fin,
               m.nombre AS modalidad_nombre
          FROM selecciones_ticket st
          JOIN eventos     e ON e.id = st.evento_id
@@ -462,7 +433,9 @@ async function consultarQR(req, res) {
         liga:            s.liga,
         modalidad:       s.modalidad_nombre,
         seleccion:       s.seleccion,
-        cuota:           Number(s.cuota_aplicada),
+        cuota:           Number(s.cuota_total ?? s.cuota_aplicada),
+        marcador:        s.marcador_local !== null ? `${s.marcador_local}-${s.marcador_visitante}` : null,
+        detalle_fin:     s.detalle_fin ?? null,
         resultado:       s.resultado,
         resultado_final: s.resultado_final ?? null,
       })),
@@ -583,7 +556,7 @@ async function listarSolicitudesAnulacion(req, res) {
 
 async function responderAnulacion(req, res) {
   const { solicitudId }    = req.params;
-  const { decision }       = req.body;
+  const decision           = req.body?.decision ?? req.body?.estado;
   const { id: usuarioId }  = req.usuario;
   const ip = _ip(req);
 
@@ -595,71 +568,72 @@ async function responderAnulacion(req, res) {
   try {
     await conn.beginTransaction();
 
-    const [solRows] = await conn.query(
-      `SELECT sa.*, t.numero_serie, t.estado AS ticket_estado
-          FROM solicitudes_anulacion sa
-          JOIN tickets t ON t.id = sa.ticket_id
-        WHERE sa.id = ? LIMIT 1`,
-      [solicitudId]
+    const [[sol]] = await conn.query(
+      `SELECT * FROM solicitudes_anulacion WHERE id = ? FOR UPDATE`, [solicitudId]
     );
-    const sol = solRows[0];
-    if (!sol) { await conn.rollback(); conn.release(); return res.status(404).json({ error: 'Solicitud no encontrada' }); }
-    if (sol.estado !== 'pendiente') { await conn.rollback(); conn.release(); return res.status(409).json({ error: 'Solicitud ya procesada' }); }
+    if (!sol) throw new ErrorApuesta(404, 'Solicitud no encontrada');
+    if (sol.estado !== 'pendiente') throw new ErrorApuesta(409, 'Solicitud ya procesada');
+
+    // Bloquea el ticket: entre la solicitud y la respuesta pudo haberse pagado o resuelto
+    const [[ticket]] = await conn.query(
+      `SELECT id, numero_serie, estado FROM tickets WHERE id = ? FOR UPDATE`, [sol.ticket_id]
+    );
+    if (decision === 'aprobada' && !['PENDIENTE', 'GANADO'].includes(ticket.estado)) {
+      throw new ErrorApuesta(409, `No se puede anular: el ticket ahora está ${ticket.estado}`);
+    }
 
     await conn.query(
       `UPDATE solicitudes_anulacion SET estado = ?, revisado_por = ?, fecha_revision = NOW(), updated_at = NOW() WHERE id = ?`,
       [decision, usuarioId, solicitudId]
     );
     if (decision === 'aprobada') {
-      await conn.query(
-        `UPDATE tickets SET estado = 'ANULADO', updated_at = NOW() WHERE id = ?`, [sol.ticket_id]
-      );
+      await conn.query(`UPDATE tickets SET estado = 'ANULADO', updated_at = NOW() WHERE id = ?`, [ticket.id]);
     }
 
-    await conn.commit(); conn.release();
+    await conn.commit();
 
-    await _log(usuarioId, `anulacion_${decision}`, 'tickets', sol.ticket_id,
-      { numero_serie: sol.numero_serie, solicitud_id: solicitudId }, ip);
+    await _log(usuarioId, `anulacion_${decision}`, 'tickets', ticket.id,
+      { numero_serie: ticket.numero_serie, solicitud_id: solicitudId }, ip);
 
     return res.status(200).json({ mensaje: `Solicitud ${decision}` });
   } catch (err) {
-    try { await conn.rollback(); conn.release(); } catch {}
-    console.error('[ticket.controller] responderAnulacion:', err);
-    return res.status(500).json({ error: 'Error interno del servidor' });
+    await conn.rollback().catch(() => {});
+    return _responderError(res, err, 'responderAnulacion');
+  } finally {
+    conn.release();
   }
+}
+
+// Bloquea el ticket y verifica bodega/estado para pagos y devoluciones
+async function _bloquearTicket(conn, id, usuario, estadoRequerido) {
+  const [[ticket]] = await conn.query(
+    `SELECT t.*, t.fecha_vencimiento_cobro > NOW() AS cobro_vigente
+       FROM tickets t WHERE t.id = ? FOR UPDATE`,
+    [id]
+  );
+  if (!ticket) throw new ErrorApuesta(404, 'Ticket no encontrado');
+  if (usuario.rol === 'bodeguero' && Number(ticket.bodega_id) !== Number(usuario.bodega_id))
+    throw new ErrorApuesta(403, 'Acceso denegado');
+  if (ticket.estado !== estadoRequerido)
+    throw new ErrorApuesta(409, `Solo tickets ${estadoRequerido}. Estado actual: ${ticket.estado}`);
+  return ticket;
 }
 
 // ─── POST /api/tickets/:id/pagar ──────────────────────────────────────────────
 
 async function procesarPago(req, res) {
-  const { id }                              = req.params;
-  const { cedula_foto_url }                 = req.body;
-  const { id: usuarioId, bodega_id, rol }   = req.usuario;
+  const { id }  = req.params;
+  const moneda  = ['USD', 'BS'].includes(req.body?.moneda) ? req.body.moneda : null;
+  const { id: usuarioId } = req.usuario;
   const ip = _ip(req);
 
   const conn = await getConnection();
   try {
     await conn.beginTransaction();
 
-    const [ticketRows] = await conn.query(
-      `SELECT t.*, b.prefijo AS bodega_prefijo
-          FROM tickets t JOIN bodegas b ON b.id = t.bodega_id
-        WHERE t.id = ? LIMIT 1`,
-      [id]
-    );
-    const ticket = ticketRows[0];
-    if (!ticket) { await conn.rollback(); conn.release(); return res.status(404).json({ error: 'Ticket no encontrado' }); }
-    if (rol === 'bodeguero' && ticket.bodega_id !== bodega_id) {
-      await conn.rollback(); conn.release(); return res.status(403).json({ error: 'Acceso denegado' });
-    }
-    if (ticket.estado !== 'GANADO') {
-      await conn.rollback(); conn.release();
-      return res.status(409).json({ error: `Solo tickets GANADO. Estado actual: ${ticket.estado}` });
-    }
-    if (parseFloat(ticket.ganancia_potencial_usd) >= MAX_GANANCIA_USD && !cedula_foto_url) {
-      await conn.rollback(); conn.release();
-      return res.status(400).json({ error: `Ganancia $${MAX_GANANCIA_USD}: se requiere cedula_foto_url` });
-    }
+    const ticket = await _bloquearTicket(conn, id, req.usuario, 'GANADO');
+    if (ticket.fecha_vencimiento_cobro && !ticket.cobro_vigente)
+      throw new ErrorApuesta(409, 'El plazo de cobro de este premio venció');
 
     const tasa     = await _obtenerTasaBcv();
     const montoUsd = parseFloat(ticket.ganancia_potencial_usd);
@@ -667,31 +641,80 @@ async function procesarPago(req, res) {
     const ahora    = new Date();
 
     await conn.query(
-      `INSERT INTO pagos (ticket_id, monto_pagado_usd, monto_pagado_bs, moneda, tasa_bcv_pago,
-          usuario_quien_pago, fecha_pago, cedula_foto_url) VALUES (?,?,?,?,?,?,?,?)`,
-      [ticket.id, montoUsd, montoBs, ticket.moneda_pago, tasa, usuarioId, ahora, cedula_foto_url ?? null]
+      `INSERT INTO pagos (ticket_id, tipo, monto_pagado_usd, monto_pagado_bs, moneda, tasa_bcv_pago,
+          usuario_quien_pago, fecha_pago) VALUES (?,'premio',?,?,?,?,?,?)`,
+      [ticket.id, montoUsd, montoBs, moneda ?? ticket.moneda_pago, tasa, usuarioId, ahora]
     );
     await conn.query(
       `UPDATE tickets SET estado = 'PAGADO', fecha_cobro = ?, updated_at = NOW() WHERE id = ?`,
       [ahora, ticket.id]
     );
 
-    await conn.commit(); conn.release();
+    await conn.commit();
 
     await _notificar('premio_alto_pagado',
       `Ticket ${ticket.numero_serie} pagó $${montoUsd} en bodega ${ticket.bodega_id}`,
       'ambos', ticket.id, 'tickets');
     await _log(usuarioId, 'pagar_premio', 'tickets', ticket.id,
-      { numero_serie: ticket.numero_serie, monto_usd: montoUsd }, ip);
+      { numero_serie: ticket.numero_serie, monto_usd: montoUsd, moneda: moneda ?? ticket.moneda_pago }, ip);
 
     return res.status(200).json({
       mensaje: 'Premio pagado correctamente',
       pago: { ticket_id: ticket.id, numero_serie: ticket.numero_serie, monto_pagado_usd: montoUsd, monto_pagado_bs: montoBs },
     });
   } catch (err) {
-    try { await conn.rollback(); conn.release(); } catch {}
-    console.error('[ticket.controller] procesarPago:', err);
-    return res.status(500).json({ error: 'Error interno del servidor' });
+    await conn.rollback().catch(() => {});
+    return _responderError(res, err, 'procesarPago');
+  } finally {
+    conn.release();
+  }
+}
+
+// ─── POST /api/tickets/:id/reembolsar ─────────────────────────────────────────
+// Ticket SUSPENDIDO (evento suspendido/cancelado): se devuelve lo apostado,
+// en la misma moneda y monto con que se pagó (tasa del día de la apuesta).
+
+async function reembolsarTicket(req, res) {
+  const { id } = req.params;
+  const { id: usuarioId } = req.usuario;
+  const ip = _ip(req);
+
+  const conn = await getConnection();
+  try {
+    await conn.beginTransaction();
+    const ticket = await _bloquearTicket(conn, id, req.usuario, 'SUSPENDIDO');
+    const ahora  = new Date();
+
+    await conn.query(
+      `INSERT INTO pagos (ticket_id, tipo, monto_pagado_usd, monto_pagado_bs, moneda, tasa_bcv_pago,
+          usuario_quien_pago, fecha_pago) VALUES (?,'reembolso',?,?,?,?,?,?)`,
+      [ticket.id, ticket.monto_apostado_usd, ticket.monto_apostado_bs, ticket.moneda_pago,
+        ticket.tasa_bcv_dia, usuarioId, ahora]
+    );
+    await conn.query(
+      `UPDATE tickets SET estado = 'REEMBOLSADO', fecha_cobro = ?, updated_at = NOW() WHERE id = ?`,
+      [ahora, ticket.id]
+    );
+    await conn.commit();
+
+    await _notificar('ticket_reembolsado',
+      `Ticket ${ticket.numero_serie} reembolsado: $${ticket.monto_apostado_usd} (${ticket.moneda_pago}) en bodega ${ticket.bodega_id}`,
+      'ambos', ticket.id, 'tickets');
+    await _log(usuarioId, 'reembolsar_ticket', 'tickets', ticket.id,
+      { numero_serie: ticket.numero_serie, monto_usd: ticket.monto_apostado_usd }, ip);
+
+    return res.status(200).json({
+      mensaje: 'Dinero devuelto al cliente',
+      reembolso: {
+        ticket_id: ticket.id, numero_serie: ticket.numero_serie, moneda: ticket.moneda_pago,
+        monto_usd: Number(ticket.monto_apostado_usd), monto_bs: Number(ticket.monto_apostado_bs),
+      },
+    });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    return _responderError(res, err, 'reembolsarTicket');
+  } finally {
+    conn.release();
   }
 }
 
@@ -707,4 +730,5 @@ module.exports = {
   listarSolicitudesAnulacion,
   responderAnulacion,
   procesarPago,
+  reembolsarTicket,
 };

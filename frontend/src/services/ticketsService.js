@@ -44,6 +44,11 @@ export const ticketsService = {
     return data;
   },
 
+  async reembolsar(ticketId) {
+    const { data } = await api.post(`/tickets/${ticketId}/reembolsar`);
+    return data;
+  },
+
   async solicitarAnulacion(ticketId, motivo) {
     const { data } = await api.post(`/tickets/${ticketId}/solicitar-anulacion`, { motivo });
     return data;
@@ -54,8 +59,8 @@ export const ticketsService = {
     return data;
   },
 
-  async responderAnulacion(solicitudId, estado) {
-    const { data } = await api.patch(`/tickets/anulaciones/${solicitudId}`, { estado });
+  async responderAnulacion(solicitudId, decision) {
+    const { data } = await api.patch(`/tickets/anulaciones/${solicitudId}`, { decision });
     return data;
   },
 };

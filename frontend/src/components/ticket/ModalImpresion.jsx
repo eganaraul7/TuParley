@@ -22,9 +22,20 @@ export default function ModalImpresion({ ticket, onFisica, onDigital, onClose })
   async function cargarConfig() {
     setCargando(true);
     setError('');
+    const claveCache = `tuparley_cfg_impresion_${usuario?.bodega_id}`;
     try {
-      const res = await bodegaService.obtenerConfigImpresion(usuario.bodega_id);
-      const cfg = res.config;
+      let cfg;
+      try {
+        const res = await bodegaService.obtenerConfigImpresion(usuario.bodega_id);
+        cfg = res.config;
+        try { localStorage.setItem(claveCache, JSON.stringify(cfg)); } catch { /* sin almacenamiento */ }
+      } catch {
+        // Sin conexión (ticket offline): usar la última configuración conocida
+        // o permitir ambos modos, para no bloquear la impresión.
+        let guardada = null;
+        try { guardada = JSON.parse(localStorage.getItem(claveCache) ?? 'null'); } catch { /* ignorar */ }
+        cfg = guardada ?? { fisica_activa: 1, digital_activa: 1 };
+      }
       setConfig(cfg);
 
       // Auto-disparar si solo un modo está activo

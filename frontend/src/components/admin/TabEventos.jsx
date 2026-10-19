@@ -7,6 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Loader2, ToggleLeft, ToggleRight, ChevronDown, AlertTriangle } from 'lucide-react';
 import { eventosService } from '../../services/eventosService';
 import { DEPORTES } from '../../utils/constants';
+import PanelResultados from './PanelResultados';
+import FormCrearEvento from './FormCrearEvento';
 
 // ── Toggle switch reutilizable ────────────────────────────────────────────────
 function Toggle({ activo, onChange, disabled }) {
@@ -146,6 +148,15 @@ export default function TabEventos() {
           {error}
         </div>
       )}
+
+      {/* ── Resultados pendientes / alta manual ───────────────────────── */}
+      <Seccion titulo="Resultados pendientes" defaultOpen>
+        <PanelResultados />
+      </Seccion>
+
+      <Seccion titulo="Crear evento manual">
+        <FormCrearEvento />
+      </Seccion>
 
       {/* ── 1. Categorías ─────────────────────────────────────────────── */}
       <Seccion titulo="Categorías deportivas" defaultOpen>

@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle } from 'lucide-react';
 import { adminService } from '../../services/adminService';
+import Panel2FA from './Panel2FA';
 
 export default function TabConfiguracion() {
   const [mantenimiento, setMantenimiento] = useState(false);
@@ -59,6 +60,8 @@ export default function TabConfiguracion() {
           </div>
         )}
       </div>
+
+      <Panel2FA />
 
       {/* info config */}
       <div className="bg-[#0f172a] rounded-xl p-4 border border-white/5 space-y-3">

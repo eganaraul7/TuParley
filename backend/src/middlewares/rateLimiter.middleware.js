@@ -2,11 +2,16 @@
 
 const { redis } = require('../config/redis');
 
-// Factory: crea un rate limiter configurable
-function crearLimiter({ ventanaSegundos = 60, maxPeticiones = 100, mensaje = 'Demasiadas peticiones' } = {}) {
+// Factory: crea un rate limiter configurable.
+// porUsuario: cuenta por usuario autenticado (si lo hay) en lugar de por IP.
+// La clave incluye el nombre del limiter para que dos limiters en la misma ruta
+// no compartan contador.
+function crearLimiter({ nombre, ventanaSegundos = 60, maxPeticiones = 100, porUsuario = false, porRuta = false,
+  mensaje = 'Demasiadas peticiones' } = {}) {
   return async (req, res, next) => {
-    const ip    = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
-    const key   = `rl:${req.path}:${ip}`;
+    const sujeto = porUsuario && req.usuario?.id ? `u${req.usuario.id}` : `ip${req.ip}`;
+    const ruta   = porRuta ? `:${req.baseUrl}${req.path}` : '';
+    const key    = `rl:${nombre}:${sujeto}${ruta}`;
 
     try {
       const actual = await redis.incr(key);
@@ -26,9 +31,14 @@ function crearLimiter({ ventanaSegundos = 60, maxPeticiones = 100, mensaje = 'De
   };
 }
 
-// Limiters predefinidos
-const limiterLogin       = crearLimiter({ ventanaSegundos: 60,  maxPeticiones: 10,  mensaje: 'Demasiados intentos de login. Espera 1 minuto.' });
-const limiterApi         = crearLimiter({ ventanaSegundos: 60,  maxPeticiones: 120, mensaje: 'Límite de peticiones alcanzado.' });
-const limiterCrearTicket = crearLimiter({ ventanaSegundos: 10,  maxPeticiones: 5,   mensaje: 'Creando tickets muy rápido. Espera un momento.' });
+const num = (v, d) => parseInt(v ?? '', 10) || d;
+
+// Limiters predefinidos (ajustables por .env)
+const limiterLogin       = crearLimiter({ nombre: 'login', ventanaSegundos: 60, porRuta: true,
+  maxPeticiones: num(process.env.RATE_LIMIT_LOGIN_MIN, 10), mensaje: 'Demasiados intentos de login. Espera 1 minuto.' });
+const limiterApi         = crearLimiter({ nombre: 'api', ventanaSegundos: 60, porUsuario: true,
+  maxPeticiones: num(process.env.RATE_LIMIT_API_MIN, 300), mensaje: 'Límite de peticiones alcanzado.' });
+const limiterCrearTicket = crearLimiter({ nombre: 'ticket', ventanaSegundos: 10, porUsuario: true,
+  maxPeticiones: num(process.env.RATE_LIMIT_TICKETS_10S, 5), mensaje: 'Creando tickets muy rápido. Espera un momento.' });
 
 module.exports = { crearLimiter, limiterLogin, limiterApi, limiterCrearTicket };

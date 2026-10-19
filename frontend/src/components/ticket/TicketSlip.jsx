@@ -84,8 +84,9 @@ export default function TicketSlip({
     const val = parseFloat(raw);
     if (isNaN(val)) { onCambiarMonto(0); return; }
     if (cuotaCombinada > 0) {
-      const maxMonto = MAX_GANANCIA_USD / cuotaCombinada;
-      onCambiarMonto(Math.min(val, maxMonto));
+      // Truncado a centavos: redondear hacia arriba superaría el tope en el servidor
+      const maxMonto = Math.floor((MAX_GANANCIA_USD / cuotaCombinada) * 100) / 100;
+      onCambiarMonto(Math.min(Math.floor(val * 100) / 100, maxMonto));
     } else {
       onCambiarMonto(val);
     }

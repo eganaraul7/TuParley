@@ -10,8 +10,9 @@ async function _log(usuarioId, accion, entidad_id, detalle, ip) {
   );
 }
 
+// req.ip ya considera X-Forwarded-For solo desde proxies de confianza (app.set('trust proxy'))
 function _ip(req) {
-  return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  return req.ip || '';
 }
 
 // ─── GET /api/bodegas ─────────────────────────────────────────────────────────

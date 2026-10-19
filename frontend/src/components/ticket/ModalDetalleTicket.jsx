@@ -7,30 +7,52 @@
 //          Extraído en el Paso 1 de reorganización components/.
 
 import { useState } from 'react';
-import { X, DollarSign, Loader2 } from 'lucide-react';
+import { X, DollarSign, Loader2, Printer } from 'lucide-react';
+import { printerService } from '../../services/printerService';
 import { fmtUsd, fmtBs, fmtCuota, fmtDt } from '../../utils/formatters';
-import { BADGE_ESTADO_TICKET, MAX_GANANCIA_USD } from '../../utils/constants';
+import { BADGE_ESTADO_TICKET } from '../../utils/constants';
+import { mensajeError } from '../../utils/errores';
 import SolicitudAnulacion from './SolicitudAnulacion';
 
-export default function ModalDetalleTicket({ ticket, onCerrar, onPagar }) {
+export default function ModalDetalleTicket({ ticket, onCerrar, onPagar, onReembolsar }) {
   const [pagando, setPagando]     = useState(false);
-  const [cedulaUrl, setCedulaUrl] = useState('');
-  const [moneda, setMoneda]       = useState('USD');
+  const [moneda, setMoneda]       = useState(ticket.moneda_pago ?? 'USD');
   const [errorPago, setErrorPago] = useState('');
-  const necesitaCedula = Number(ticket.ganancia_potencial_usd) >= MAX_GANANCIA_USD;
 
-  async function handlePagar() {
-    if (necesitaCedula && !cedulaUrl.trim()) {
-      setErrorPago(`Se requiere URL de foto de cédula para premios de ${fmtUsd(MAX_GANANCIA_USD)}.`);
-      return;
+  const [msgImpresion, setMsgImpresion] = useState('');
+
+  async function handleReimprimir() {
+    setMsgImpresion('');
+    try {
+      await printerService.imprimirTicket(ticket);
+      setMsgImpresion('Ticket enviado a la impresora.');
+    } catch (err) {
+      setMsgImpresion(err.message ?? 'No se pudo imprimir.');
     }
+  }
+
+  async function handleReembolsar() {
+    if (!window.confirm(`¿Confirmas que entregaste ${fmtUsd(ticket.monto_apostado_usd)} (${ticket.moneda_pago}) al cliente?`)) return;
     setPagando(true);
     setErrorPago('');
     try {
-      await onPagar(ticket.id, { moneda, cedula_foto_url: cedulaUrl || undefined });
+      await onReembolsar(ticket.id);
       onCerrar();
     } catch (err) {
-      setErrorPago(err.response?.data?.mensaje || 'Error al registrar pago.');
+      setErrorPago(mensajeError(err, 'Error al registrar la devolución.'));
+    } finally {
+      setPagando(false);
+    }
+  }
+
+  async function handlePagar() {
+    setPagando(true);
+    setErrorPago('');
+    try {
+      await onPagar(ticket.id, { moneda });
+      onCerrar();
+    } catch (err) {
+      setErrorPago(mensajeError(err, 'Error al registrar pago.'));
     } finally {
       setPagando(false);
     }
@@ -93,22 +115,26 @@ export default function ModalDetalleTicket({ ticket, onCerrar, onPagar }) {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-white font-medium truncate">
-                        {sel.evento?.equipo_local} vs {sel.evento?.equipo_visitante}
+                        {sel.equipo_local ?? sel.evento?.equipo_local} vs {sel.equipo_visitante ?? sel.evento?.equipo_visitante}
                       </p>
-                      <p className="text-[#94a3b8] mt-0.5">{sel.modalidad?.nombre}</p>
+                      <p className="text-[#94a3b8] mt-0.5">{sel.modalidad_nombre ?? sel.modalidad?.nombre}</p>
                       <p className="text-[#94a3b8]">
                         Selección: <span className="text-white">{sel.seleccion}</span>
+                        {sel.marcador_local !== null && sel.marcador_local !== undefined && (
+                          <span className="text-white"> · {sel.marcador_local}-{sel.marcador_visitante}</span>
+                        )}
+                        {sel.detalle_fin && <span className="text-white"> · {sel.detalle_fin}</span>}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="text-[#10b981] font-bold">{fmtCuota(sel.cuota_aplicada)}</span>
+                      <span className="text-[#10b981] font-bold">{fmtCuota(sel.cuota_total ?? sel.cuota_aplicada)}</span>
                       <p className={`mt-1 text-[11px] font-medium ${
                         sel.resultado === 'ganado'    ? 'text-[#10b981]' :
                         sel.resultado === 'perdido'   ? 'text-[#ef4444]' :
                         sel.resultado === 'suspendido'? 'text-[#f59e0b]' :
                         'text-[#475569]'
                       }`}>
-                        {sel.resultado.toUpperCase()}
+                        {String(sel.resultado ?? 'pendiente').toUpperCase()}
                       </p>
                     </div>
                   </div>
@@ -118,9 +144,11 @@ export default function ModalDetalleTicket({ ticket, onCerrar, onPagar }) {
           )}
 
           {/* pago info si ya fue pagado */}
-          {ticket.estado === 'PAGADO' && ticket.pago && (
+          {['PAGADO', 'REEMBOLSADO'].includes(ticket.estado) && ticket.pago && (
             <div className="bg-[#3b82f6]/10 border border-[#3b82f6]/20 rounded-xl p-3 text-xs">
-              <p className="text-[#3b82f6] font-medium mb-1">Premio entregado</p>
+              <p className="text-[#3b82f6] font-medium mb-1">
+                {ticket.pago.tipo === 'reembolso' ? 'Dinero devuelto' : 'Premio entregado'}
+              </p>
               <p className="text-[#94a3b8]">
                 {fmtUsd(ticket.pago.monto_pagado_usd)} en {ticket.pago.moneda} —{' '}
                 {fmtDt(ticket.pago.fecha_pago)}
@@ -149,25 +177,6 @@ export default function ModalDetalleTicket({ ticket, onCerrar, onPagar }) {
                 ))}
               </div>
 
-              {/* cédula si necesario */}
-              {necesitaCedula && (
-                <div>
-                  <label className="text-[#94a3b8] text-[11px] uppercase tracking-wider font-medium block mb-1">
-                    URL Foto Cédula <span className="text-[#ef4444]">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={cedulaUrl}
-                    onChange={(e) => setCedulaUrl(e.target.value)}
-                    placeholder="https://…"
-                    className="w-full bg-[#0f172a] text-white text-xs border border-white/10 rounded-xl px-3 py-2.5 focus:outline-none focus:border-[#10b981]"
-                  />
-                  <p className="text-[#f59e0b] text-[11px] mt-1">
-                    Premio de {fmtUsd(MAX_GANANCIA_USD)} — foto de cédula obligatoria.
-                  </p>
-                </div>
-              )}
-
               {errorPago && (
                 <p className="text-[#ef4444] text-xs">{errorPago}</p>
               )}
@@ -190,8 +199,32 @@ export default function ModalDetalleTicket({ ticket, onCerrar, onPagar }) {
               <p className="text-[#f59e0b] font-medium">Evento suspendido</p>
               <p className="text-[#94a3b8] mt-0.5">
                 El cliente puede solicitar devolución de {fmtUsd(ticket.monto_apostado_usd)}{' '}
-                en la moneda original ({ticket.moneda_pago}).
+                ({fmtBs(ticket.monto_apostado_bs)}) en la moneda original ({ticket.moneda_pago}).
               </p>
+              {errorPago && <p className="text-[#ef4444] mt-2">{errorPago}</p>}
+              {onReembolsar && (
+                <button
+                  onClick={handleReembolsar}
+                  disabled={pagando}
+                  className="mt-3 w-full bg-[#f59e0b] hover:bg-[#d97706] text-[#0f172a] font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition disabled:opacity-60"
+                >
+                  {pagando ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
+                  Devolver dinero
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* reimpresión (copia del ticket) */}
+          {ticket.selecciones?.length > 0 && ['PENDIENTE', 'GANADO'].includes(ticket.estado) && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleReimprimir}
+                className="flex items-center gap-1.5 text-xs font-semibold text-[#94a3b8] hover:text-white border border-white/10 rounded-lg px-3 py-2 transition"
+              >
+                <Printer className="w-3.5 h-3.5" /> Reimprimir
+              </button>
+              {msgImpresion && <span className="text-[#94a3b8] text-[11px]">{msgImpresion}</span>}
             </div>
           )}
 

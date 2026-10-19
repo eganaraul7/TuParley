@@ -15,7 +15,8 @@ module.exports = function iniciarSocket(io) {
 
       const payload = jwt.verify(token, JWT_SECRET);
       const sesion  = await getCache(KEYS.sesion(payload.id), true);
-      if (!sesion)  return next(new Error('Sesión inválida'));
+      if (!sesion || sesion.hora_apertura_sesion !== payload.hora_apertura_sesion)
+        return next(new Error('Sesión inválida'));
 
       socket.usuario = payload;
       next();

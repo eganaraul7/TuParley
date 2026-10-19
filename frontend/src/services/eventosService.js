@@ -80,4 +80,35 @@ export const eventosService = {
     const { data } = await api.patch(`/eventos/modalidades/${id}/cuota`, { cuota_base });
     return data;
   },
+
+  // ── Multiplicadores opcionales ──────────────────────────────────────────────
+
+  async listarCuotasMarcador(deporte) {
+    const params = deporte ? { deporte } : {};
+    const { data } = await api.get('/eventos/cuotas-marcador/lista', { params });
+    return data;
+  },
+
+  async listarCuotasDetalle(deporte) {
+    const params = deporte ? { deporte } : {};
+    const { data } = await api.get('/eventos/cuotas-detalle/lista', { params });
+    return data;
+  },
+
+  // ── Resultados (admin) ──────────────────────────────────────────────────────
+
+  async pendientesResultado() {
+    const { data } = await api.get('/eventos/resultados/pendientes');
+    return data;
+  },
+
+  /**
+   * registrarResultado — cierra el evento con su resultado y liquida los tickets
+   * @param {number} id
+   * @param {{ marcador_local?, marcador_visitante?, ganador?, detalle_fin? }} payload
+   */
+  async registrarResultado(id, payload) {
+    const { data } = await api.patch(`/eventos/${id}/resultado`, payload);
+    return data;
+  },
 };

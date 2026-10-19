@@ -9,7 +9,11 @@ import { useAuthStore } from '../store/authStore';
  * errores 401/503 consistentes en toda la app.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api';
+// Sin VITE_API_URL: en desarrollo el backend está en el mismo host que abrió la
+// página, puerto 4000 (sirve también para tablets en la LAN); en producción,
+// mismo origen (Nginx o Express sirven /api).
+const BASE_URL = import.meta.env.VITE_API_URL
+  ?? (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:4000/api` : '/api');
 
 const api = axios.create({
   baseURL: BASE_URL,

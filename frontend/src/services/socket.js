@@ -7,7 +7,8 @@ import { io } from 'socket.io-client';
  * Todos los hooks/páginas obtienen la misma instancia vía getSocket().
  */
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ?? 'http://localhost:4000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL
+  ?? (import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:4000` : window.location.origin);
 
 let socket = null;
 
